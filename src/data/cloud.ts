@@ -400,7 +400,7 @@ function slugify(nome: string) {
   return `${base || "petshop"}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export async function criarPetshop(sb: Sb, input: { nome: string; donoNome: string; whatsapp?: string }) {
+export async function criarPetshop(sb: Sb, input: { nome: string; donoNome: string; whatsapp?: string; termos?: string }) {
   if (input.nome.trim().length < 2) throw new ErroRegra("Informe o nome do pet shop.");
   const ps = (await ok(
     sb.rpc("criar_petshop", {
@@ -411,6 +411,8 @@ export async function criarPetshop(sb: Sb, input: { nome: string; donoNome: stri
     }),
   )) as Linha;
   const psId = ps.id as string;
+  // Aceite dos termos de uso e da política de privacidade, registrado com data e quem aceitou.
+  if (input.termos) await ok(sb.rpc("aceitar_termos", { p_petshop: psId, p_versao: input.termos }));
 
   // Serviços, preços, pacotes e mensagens padrão (mesmos do modo demonstração).
   const mapa = new Map<string, string>();
@@ -564,6 +566,43 @@ export const remoto = {
         consentimento_whatsapp_em: t.consentimentoWhatsapp ? new Date().toISOString() : null,
       }),
     ),
+
+  /** Importação da planilha: tutores e depois pets, em lotes de 500. */
+  importar: async (sb: Sb, ps: string, tutores: Tutor[], pets: Pet[]) => {
+    const lotes = <T,>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / 500) }, (_, i) => xs.slice(i * 500, i * 500 + 500));
+    for (const lote of lotes(tutores))
+      await ok(
+        sb.from("tutores").insert(
+          lote.map((t) => ({
+            id: t.id,
+            petshop_id: ps,
+            nome: t.nome,
+            whatsapp: t.whatsapp,
+            email: t.email ?? null,
+            endereco: t.endereco ?? null,
+            origem: "planilha",
+            consentimento_whatsapp_em: t.consentimentoWhatsapp ? t.criadoEm : null,
+          })),
+        ),
+      );
+    for (const lote of lotes(pets))
+      await ok(
+        sb.from("pets").insert(
+          lote.map((p) => ({
+            id: p.id,
+            petshop_id: ps,
+            tutor_id: p.tutorId,
+            nome: p.nome,
+            especie: p.especie,
+            raca: p.raca || null,
+            porte: p.porte,
+            sexo: p.sexo ?? null,
+            alergias: p.alergias ?? null,
+            observacoes: p.observacoes ?? null,
+          })),
+        ),
+      );
+  },
 
   pet: (sb: Sb, ps: string, p: Pet, novo: boolean, fotoPath?: string | null) => {
     const linha: Linha = {

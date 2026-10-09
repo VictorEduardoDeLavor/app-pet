@@ -17,6 +17,7 @@ import { hoje } from "@/domain/format";
 import { MODELOS_PADRAO } from "@/domain/messages";
 import { blobParaDataUrl, reduzirFoto, subirFoto, urlPublica } from "@/lib/fotos";
 import { carregar, gerarConvite, remoto, traduzirErro } from "./cloud";
+import { aplicarImportacao, type Previa } from "@/domain/importacao";
 
 type Resultado<T = void> = { ok: true; valor: T } | { ok: false; erro: string };
 export type Modo = "demo" | "nuvem";
@@ -66,6 +67,8 @@ interface Estado {
   estornarUso: (usoId: string) => void;
   criarTutor: (input: { nome: string; whatsapp: string; endereco?: string; consentimentoWhatsapp?: boolean }) => Resultado<string>;
   criarPet: (input: Omit<Pet, "id">) => Resultado<string>;
+  /** Clientes e pets vindos de uma planilha, gravados em lote. */
+  importarClientes: (previa: Previa) => Resultado<{ tutores: number; pets: number }>;
   atualizarPet: (pet: Pet) => void;
   criarMembro: (input: { nome: string; papel: Membro["papel"]; comissaoPct: number }) => Resultado<string>;
   salvarModelo: (id: string, texto: string) => void;
@@ -259,6 +262,15 @@ export const useApp = create<Estado>()(
               return { db: r.db, valor: r.pet.id, ctx: r.pet };
             },
             (c, ps, p) => remoto.pet(c, ps, p, true),
+          ),
+
+        importarClientes: (previa) =>
+          aplicar(
+            (db) => {
+              const r = aplicarImportacao(db, previa, new Date());
+              return { db: r.db, valor: { tutores: r.tutores.length, pets: r.pets.length }, ctx: r };
+            },
+            (c, ps, r) => remoto.importar(c, ps, r.tutores, r.pets),
           ),
 
         atualizarPet: (pet) => {

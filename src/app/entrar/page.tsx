@@ -1,5 +1,6 @@
 "use client";
 
+import { MARCA } from "@/lib/marca";
 import { useEffect, useState } from "react";
 import { KeyRound, MailCheck, PawPrint, Sparkles } from "lucide-react";
 import { CHAVE_CONVITE, CHAVE_DEMO, supabase, temSupabase } from "@/lib/supabase/client";
@@ -28,7 +29,11 @@ export default function Entrar() {
 
   // Link de convite: guarda o código para usar depois do cadastro e já abre em "Criar conta".
   useEffect(() => {
-    const c = new URLSearchParams(window.location.search).get("convite");
+    const q = new URLSearchParams(window.location.search);
+    // Vindo da página de vendas: "Começar teste grátis" abre em Criar conta; "Ver demonstração" entra direto.
+    if (q.get("demo") === "1") return demonstracao();
+    if (q.get("criar") === "1") setModo("criar");
+    const c = q.get("convite");
     if (!c) return;
     const codigo = c.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
     localStorage.setItem(CHAVE_CONVITE, codigo);
@@ -212,6 +217,19 @@ export default function Entrar() {
             <button onClick={demonstracao} className="text-[14.5px] font-medium text-brand-600">
               Ver demonstração com dados de exemplo
             </button>
+            <p className="mt-3 text-[13px] text-muted">
+              <a href="/conheca" className="hover:text-brand-700">
+                Conheça o {MARCA.nome}
+              </a>
+              {" · "}
+              <a href="/termos" className="hover:text-brand-700">
+                Termos
+              </a>
+              {" · "}
+              <a href="/privacidade" className="hover:text-brand-700">
+                Privacidade
+              </a>
+            </p>
           </div>
         </div>
       </div>
@@ -230,7 +248,7 @@ function CapaEntrada() {
         <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-brand-600">
           <PawPrint className="h-4 w-4" strokeWidth={2.4} />
         </span>
-        <span className="text-[14px] font-bold tracking-tight">APP PET</span>
+        <span className="text-[14px] font-bold tracking-tight">{MARCA.nome}</span>
       </div>
       <div className="absolute inset-x-6 bottom-14 text-white lg:inset-x-12 lg:bottom-16">
         <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/75">Banho e tosa</p>

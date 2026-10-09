@@ -13,7 +13,7 @@ SaaS para pet shops e banho e tosa. Este repositório tem o **MVP para dono, rec
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 47 testes: regras de negócio, permissões e schema do Supabase
+npm test           # 78 testes: regras de negócio, assinatura, importação, Asaas e schema do Supabase
 npm run build
 ```
 
@@ -39,6 +39,11 @@ No celular, abra o endereço no navegador e use **Adicionar à tela inicial**.
 | Minha fila | `/fila` | Tela do banhista/tosador: pet na mesa, próximos, alergias e cuidados em destaque, iniciar, registrar etapa com foto (chegou, banho, secagem, tosa, pronto), finalizar com foto do resultado, prontos do dia e comissão estimada |
 | Equipe | `/equipe` | Pessoas e papéis, comissão própria opcional, convite por código de 6 letras para cada pessoa entrar com o próprio login |
 | Mais | `/mais`, `/servicos`, `/produtos` | Serviços e preços por porte (com % de comissão), funcionamento, configurações, conta |
+| Importar planilha | `/clientes/importar` | Clientes e pets de um Excel (.xlsx) ou CSV: modelo para baixar, colunas reconhecidas pelo cabeçalho (dá para ajustar), prévia, sem duplicar quem já existe |
+| Assinatura | `/assinatura` | Dias de teste, plano R$ 49/mês, assinar (CPF/CNPJ e e-mail), faturas do Asaas com link de pagamento, cancelar |
+| Painel do administrador | `/admin` | Só para quem está em `plataforma_admins`: pet shops, uso, situação da assinatura, receita mensal; estender teste, liberar, bloquear, mudar a mensalidade |
+| Página de vendas | `/conheca` | Página pública com recursos, prints do app, preço, perguntas e botões de teste grátis e demonstração. Visitante sem conta em `/` cai aqui |
+| Termos e privacidade | `/termos`, `/privacidade` | Rascunho (LGPD: pet shop controlador, plataforma operadora; fotos, link do tutor, GPS). Aceite obrigatório ao criar o pet shop |
 
 ## Quem vê o quê
 
@@ -62,6 +67,15 @@ No computador (a partir de 1024 px) a barra de baixo vira menu lateral, as folha
 - **browser-image-compression**: reduz a foto da câmera (3–5 MB) para ~150 KB no próprio celular antes de subir.
 - **Supabase Storage**: bucket público `fotos` com caminhos aleatórios; só a equipe do pet shop grava e lista a própria pasta.
 
+## Assinatura do SaaS (teste grátis + Asaas)
+
+- Todo pet shop nasce com **14 dias de teste** (`assinaturas.teste_ate`) e mensalidade de **R$ 49** (`assinaturas.valor`, ajustável por pet shop no painel).
+- **Acesso:** liberado no teste, com a mensalidade paga até `pago_ate` (+3 dias de tolerância) ou com `liberado_ate` dado pelo administrador. Fora disso o RLS fecha as tabelas de operação (`meus_petshops()` e `tem_papel()` passam por `assinatura_liberada()`); dono e equipe ainda veem o pet shop e a situação para regularizar. Nada é apagado.
+- **Cobrança:** Edge Function `assinatura` cria o cliente e a assinatura mensal no Asaas (`billingType: UNDEFINED`: o pet shop escolhe Pix, boleto ou cartão na fatura), com o primeiro vencimento no fim do teste. Ações: `assinar`, `sincronizar`, `cancelar`.
+- **Webhook:** Edge Function `asaas-webhook` confere o header `asaas-access-token` e chama `asaas_processar_evento()` (grava o evento uma vez, atualiza as faturas, recalcula `pago_ate`).
+- **Segredos das Edge Functions** (Supabase → Edge Functions → Secrets): `ASAAS_API_KEY` (chave do Asaas; `$aact_hmlg_` = sandbox, `$aact_prod_` = produção) e `ASAAS_WEBHOOK_TOKEN` (o mesmo token cadastrado no webhook do Asaas, URL `https://ytsimguduvxjfbesgzub.supabase.co/functions/v1/asaas-webhook`). Sem a chave, o botão Assinar avisa que o pagamento online ainda não está ligado e o administrador libera à mão.
+- Nome, preço, dias de teste, contato do suporte e versão dos termos ficam em `src/lib/marca.ts`.
+
 ## Como está organizado
 
 ```
@@ -69,7 +83,7 @@ src/domain/       regras de negócio puras (rules.ts) + mensagens + formatação
 src/data/         estado do protótipo (Zustand + localStorage) e dados de exemplo
 src/components/   UI base, navegação, folhas de WhatsApp, pagamento e pet
 src/app/(app)/    telas
-supabase/         migrations (0001 schema; 0002–0005 convites e comissão; 0006 ajustes dos advisors) + teste do schema em Postgres embutido (PGlite)
+supabase/         migrations (0001 schema; 0002–0005 convites e comissão; 0006 advisors; 0007–0009 acompanhamento e leva e traz; 0010 assinatura, admin e termos) + Edge Functions (assinatura, asaas-webhook) + teste do schema em Postgres embutido (PGlite)
 ```
 
 As regras vivem em dois lugares que espelham uma à outra:

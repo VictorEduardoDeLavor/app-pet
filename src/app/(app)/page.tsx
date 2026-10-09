@@ -8,6 +8,8 @@ import { atendimentosDoDia, clientesSumidos, emRota, kpisDoDia, planosAVencer, p
 import { dataLonga, hoje, horaAtual, horaDoIso, moedaCurta, primeiroNome, saudacao } from "@/domain/format";
 import { CapaFoto, Chip, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
+import { FaixaAssinatura } from "@/components/portao";
+import { MARCA } from "@/lib/marca";
 
 export default function Inicio() {
   const db = useDb();
@@ -30,7 +32,7 @@ export default function Inicio() {
         <div className="flex items-center gap-2.5 lg:hidden">
           <PawPrint className="h-8 w-8 text-brand-600" strokeWidth={2.2} />
           <div className="leading-tight">
-            <p className="text-[18px] font-bold tracking-tight text-brand-700">APP PET</p>
+            <p className="text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</p>
             <p className="text-[12.5px] text-muted">{db.petshop.nome}</p>
           </div>
         </div>
@@ -54,6 +56,8 @@ export default function Inicio() {
           </div>
         </div>
       </CapaFoto>
+
+      <FaixaAssinatura className="mx-5 mt-4" />
 
       {aVencer.length > 0 && (
         <Link

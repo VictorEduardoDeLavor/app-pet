@@ -2,15 +2,16 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { MARCA } from "@/lib/marca";
 
 const SITE = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
-  title: "APP PET",
-  description: "Agenda, clientes, planos e caixa para banho e tosa.",
+  title: MARCA.nome,
+  description: MARCA.slogan,
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "APP PET", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: MARCA.nome, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

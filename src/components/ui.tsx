@@ -90,6 +90,37 @@ export function BotaoLink({ href, icone, children, className }: { href: string; 
   );
 }
 
+/** Link para fora do app (fatura, WhatsApp) com cara de botão; abre em outra aba. */
+export function BotaoExterno({
+  href,
+  icone,
+  children,
+  variante = "primario",
+  className,
+}: {
+  href: string;
+  icone?: ReactNode;
+  children: ReactNode;
+  variante?: "primario" | "contorno";
+  className?: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={cx(
+        "tap inline-flex h-[52px] w-full items-center justify-center gap-2.5 rounded-2xl px-5 text-[15px] font-semibold",
+        variante === "primario" ? "botao-primario text-white" : "border-[1.5px] border-brand-300 bg-white text-brand-700 hover:bg-brand-50",
+        className,
+      )}
+    >
+      {icone}
+      {children}
+    </a>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cabeçalhos
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 "use client";
 
+import { MARCA } from "@/lib/marca";
 import { useState } from "react";
 import { Copy, KeyRound, MessageCircle, UserPlus } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
@@ -154,7 +155,7 @@ function ConviteFolha({ membroId, onFechar }: { membroId: string; onFechar: () =
 
   const site = typeof window !== "undefined" ? window.location.origin : "";
   const texto = valido
-    ? `Oi, ${m.nome.split(" ")[0]}! Você foi convidado(a) para a equipe do ${db.petshop.nome} no APP PET.\n\n` +
+    ? `Oi, ${m.nome.split(" ")[0]}! Você foi convidado(a) para a equipe do ${db.petshop.nome} no ${MARCA.nome}.\n\n` +
       `1. Abra ${site}/entrar?convite=${valido.codigo}\n2. Crie sua conta com seu e-mail\n3. Use o código ${valido.codigo}\n\nO código vale até ${dataCurta(dataDoIso(valido.expiraEm))}.`
     : "";
 

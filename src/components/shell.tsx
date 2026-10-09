@@ -7,6 +7,7 @@ import {
   Calendar,
   Car,
   ClipboardList,
+  CreditCard,
   HandCoins,
   House,
   ListChecks,
@@ -30,6 +31,7 @@ import { NOME_PAPEL_CURTO, inicioDoPapel, pode, rotaPermitida, type Area } from 
 import { hoje, iniciais } from "@/domain/format";
 import { BotaoLink, Vazio, cx } from "./ui";
 import { useSessao } from "./providers";
+import { MARCA } from "@/lib/marca";
 
 type ItemNav = { href: string; rotulo: string; Icone: LucideIcon; area: Area | null; prefixos: string[] };
 
@@ -47,6 +49,7 @@ const GESTAO: ItemNav[] = [
   { href: "/servicos", rotulo: "Serviços e preços", Icone: Scissors, area: "servicos", prefixos: ["/servicos"] },
   { href: "/equipe", rotulo: "Equipe", Icone: UserCog, area: "equipe", prefixos: ["/equipe"] },
   { href: "/produtos", rotulo: "Produtos", Icone: ShoppingBag, area: "produtos", prefixos: ["/produtos"] },
+  { href: "/assinatura", rotulo: "Assinatura", Icone: CreditCard, area: "assinatura", prefixos: ["/assinatura"] },
 ];
 
 function ativo(item: ItemNav, caminho: string) {
@@ -164,7 +167,7 @@ function BarraLateral({ papel }: { papel: Papel }) {
       <Link href={inicioDoPapel(papel)} className="flex items-center gap-2.5 px-2">
         <PawPrint className="h-8 w-8 text-brand-600" strokeWidth={2.2} />
         <span className="min-w-0 leading-tight">
-          <span className="block text-[18px] font-bold tracking-tight text-brand-700">APP PET</span>
+          <span className="block text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</span>
           <span className="block truncate text-[12.5px] text-muted">{db.petshop.nome}</span>
         </span>
       </Link>

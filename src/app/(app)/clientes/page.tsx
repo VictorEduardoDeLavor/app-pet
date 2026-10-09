@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronRight, Search, TriangleAlert, UserPlus, Users } from "lucide-react";
+import { ChevronRight, FileUp, Search, TriangleAlert, UserPlus, Users } from "lucide-react";
 import { useDb } from "@/data/store";
 import { clientesSumidos, petsDoTutor, planoAtivoDoPet } from "@/domain/rules";
 import { hoje, telefone } from "@/domain/format";
@@ -36,10 +36,15 @@ export default function Clientes() {
     <div>
       <Titulo
         acao={
-          <Link href="/clientes/novo" className="tap flex items-center gap-1.5 rounded-full px-3 py-2 text-[15px] font-medium text-brand-600">
-            <UserPlus className="h-[18px] w-[18px]" />
-            Novo
-          </Link>
+          <div className="flex items-center">
+            <Link href="/clientes/importar" aria-label="Importar planilha" title="Importar planilha" className="tap grid h-10 w-10 place-items-center rounded-full text-brand-600 hover:bg-surface">
+              <FileUp className="h-[19px] w-[19px]" />
+            </Link>
+            <Link href="/clientes/novo" className="tap flex items-center gap-1.5 rounded-full px-3 py-2 text-[15px] font-medium text-brand-600">
+              <UserPlus className="h-[18px] w-[18px]" />
+              Novo
+            </Link>
+          </div>
         }
       >
         Clientes
@@ -64,7 +69,18 @@ export default function Clientes() {
       </div>
 
       {lista.length === 0 ? (
-        <Vazio icone={<Users className="h-6 w-6" />} titulo="Nenhum cliente encontrado" texto="Tente outro nome ou cadastre um novo tutor." />
+        <Vazio
+          icone={<Users className="h-6 w-6" />}
+          titulo={db.tutores.length ? "Nenhum cliente encontrado" : "Nenhum cliente ainda"}
+          texto={db.tutores.length ? "Tente outro nome ou cadastre um novo tutor." : "Cadastre o primeiro tutor ou traga todos de uma planilha."}
+          acao={
+            db.tutores.length ? undefined : (
+              <Link href="/clientes/importar" className="tap inline-flex items-center gap-2 rounded-full bg-brand-50 px-4 py-2.5 text-[14.5px] font-semibold text-brand-700">
+                <FileUp className="h-4 w-4" /> Importar planilha
+              </Link>
+            )
+          }
+        />
       ) : (
         <ul className="mt-4 space-y-2.5 px-5">
           {lista.map((t) => {

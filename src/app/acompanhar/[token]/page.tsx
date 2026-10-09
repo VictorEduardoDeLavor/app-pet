@@ -1,5 +1,6 @@
 "use client";
 
+import { MARCA } from "@/lib/marca";
 // Página do tutor: abre pelo link do WhatsApp, sem senha. Mostra em que etapa o pet está,
 // as fotos que a equipe tirou e, no leva e traz, o carro andando no mapa.
 
@@ -236,7 +237,7 @@ function Visao({ v, demo, atualizadoEm }: { v: VisaoTutor; demo: boolean; atuali
             Falar com a {v.petshop.nome}
           </a>
         )}
-        <p className="mt-6 text-center text-[12px] text-subtle">Feito com APP PET</p>
+        <p className="mt-6 text-center text-[12px] text-subtle">Feito com {MARCA.nome}</p>
       </div>
     </main>
   );

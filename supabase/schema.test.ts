@@ -31,6 +31,7 @@ beforeAll(async () => {
   await db.exec(`
     create role authenticated nologin;
     create role anon nologin;
+    create role service_role nologin;
     create schema extensions;
     create schema auth;
     create table auth.users (id uuid primary key, email text);
@@ -419,5 +420,129 @@ describe("schema Supabase", () => {
     expect(await como(U_ANA, async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(1);
     expect(await como(U_OUTRO, async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(0);
     expect(await anon(async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 0010: assinatura (teste grátis + Asaas), painel do administrador e termos
+  // -------------------------------------------------------------------------
+
+  const servico = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    await db.exec(`set role service_role;`);
+    try {
+      return await fn();
+    } finally {
+      await db.exec(`reset role;`);
+    }
+  };
+  const vencerTeste = (ps: string) => db.query(`update assinaturas set teste_ate = now() - interval '1 day' where petshop_id = $1`, [ps]);
+  const minha = <T = Record<string, unknown>>(user: string, ps: string) =>
+    como(user, async () => (await um<{ a: T }>(`select minha_assinatura($1) as a`, [ps])).a);
+
+  it("pet shop nasce com 14 dias de teste, R$ 49 e o aceite dos termos", async () => {
+    const U_NOVO = "00000000-0000-0000-0000-0000000000f1";
+    await db.query(`insert into auth.users values ($1, 'novo@pet.com')`, [U_NOVO]);
+    const C = (await como(U_NOVO, () => um<{ id: string }>(`select id from criar_petshop('Novo Pet', 'novo-pet', null, 'Rita')`))).id;
+    await como(U_NOVO, () => db.query(`select aceitar_termos($1, '2026-10')`, [C]));
+    const a = await um<{ status: string; valor: string; dias: number }>(
+      `select status, valor, round(extract(epoch from teste_ate - now()) / 86400)::int as dias from assinaturas where petshop_id = $1`, [C]);
+    expect(a).toEqual({ status: "trial", valor: "49.00", dias: 14 });
+    const p = await um<{ termos_versao: string; termos_aceitos_por: string }>(`select termos_versao, termos_aceitos_por from petshops where id = $1`, [C]);
+    expect(p).toEqual({ termos_versao: "2026-10", termos_aceitos_por: U_NOVO });
+    const m = await minha<{ liberado: boolean; status: string; dono: boolean; pagamentos: unknown[] }>(U_NOVO, C);
+    expect(m).toMatchObject({ liberado: true, status: "trial", dono: true, pagamentos: [] });
+    // Os pet shops dos testes anteriores também ganharam a assinatura.
+    expect((await um<{ n: number }>(`select count(*)::int as n from assinaturas where petshop_id in ($1, $2)`, [A, B])).n).toBe(2);
+  });
+
+  it("teste vencido fecha a operação; dono e equipe ainda veem o pet shop e a situação", async () => {
+    await vencerTeste(B);
+    expect(await como(U_OUTRO, async () => (await db.query(`select * from tutores`)).rows.length)).toBe(0);
+    expect(await como(U_OUTRO, async () => (await db.query(`select * from petshops`)).rows.length)).toBe(1);
+    await expect(como(U_OUTRO, () => db.query(`insert into tutores (petshop_id, nome, whatsapp) values ($1, 'X', '5511900000000')`, [B]))).rejects.toThrow(/row-level security/);
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: false, status: "trial", dono: true });
+
+    // Banhista do pet shop A bloqueado: sabe que está suspenso, não vê dados de cobrança.
+    await vencerTeste(A);
+    const b = await minha<Record<string, unknown>>(U_BRUNO, A);
+    expect(b).toMatchObject({ liberado: false, dono: false });
+    expect(b).not.toHaveProperty("documento");
+    expect(b).not.toHaveProperty("pagamentos");
+    expect(await como(U_BRUNO, async () => (await db.query(`select * from atendimentos`)).rows.length)).toBe(0);
+    await expect(como(U_ANA, () => db.query(`select fechar_caixa($1, current_date)`, [A]))).rejects.toThrow(/Sem permissão/);
+    await expect(minha(U_OUTRO, A)).rejects.toThrow(/Sem acesso/);
+    await db.query(`update assinaturas set teste_ate = now() + interval '14 days' where petshop_id = $1`, [A]);
+    expect(await como(U_BRUNO, async () => (await db.query(`select * from atendimentos`)).rows.length)).toBeGreaterThan(0);
+  });
+
+  it("Asaas: pagamento libera, atraso marca, estorno volta, repetido é ignorado e cancelamento fica registrado", async () => {
+    await db.query(`update assinaturas set asaas_customer_id = 'cus_1', asaas_subscription_id = 'sub_1' where petshop_id = $1`, [B]);
+    const hoje = (await um<{ d: string }>(`select to_char(current_date, 'YYYY-MM-DD') as d`)).d;
+    const evento = (id: string, event: string, status: string, extra: Record<string, unknown> = {}) => ({
+      id, event, dateCreated: "2026-10-09 10:00:00",
+      payment: { object: "payment", id: "pay_1", customer: "cus_1", subscription: "sub_1", value: 49, dueDate: hoje, status, billingType: "PIX", invoiceUrl: "https://sandbox.asaas.com/i/1", campoNovo: true, ...extra },
+    });
+    const processar = (e: unknown) => servico(async () => (await um<{ r: string }>(`select asaas_processar_evento($1::jsonb) as r`, [JSON.stringify(e)])).r);
+
+    await expect(como(U_OUTRO, () => db.query(`select asaas_processar_evento('{}'::jsonb)`))).rejects.toThrow(/permission denied/);
+
+    expect(await processar(evento("evt_1", "PAYMENT_CREATED", "PENDING"))).toBe("ok");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: false });
+
+    expect(await processar(evento("evt_2", "PAYMENT_RECEIVED", "RECEIVED", { paymentDate: hoje }))).toBe("ok");
+    expect(await processar(evento("evt_2", "PAYMENT_RECEIVED", "RECEIVED"))).toBe("repetido");
+    const pago = await minha<{ liberado: boolean; status: string; pago_ate: string; pagamentos: { status: string; link: string; pago_em: string }[] }>(U_OUTRO, B);
+    expect(pago).toMatchObject({ liberado: true, status: "ativa", assinada: true });
+    expect(pago.pago_ate).toBe((await um<{ d: string }>(`select to_char(current_date + interval '1 month', 'YYYY-MM-DD') as d`)).d);
+    expect(pago.pagamentos).toEqual([expect.objectContaining({ status: "RECEIVED", link: "https://sandbox.asaas.com/i/1", pago_em: hoje })]);
+    expect(await como(U_OUTRO, async () => (await db.query(`select * from tutores`)).rows.length)).toBe(1);
+
+    expect(await processar(evento("evt_3", "PAYMENT_REFUNDED", "REFUNDED"))).toBe("ok");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: false, pago_ate: null });
+
+    expect(await processar({ ...evento("evt_4", "PAYMENT_OVERDUE", "OVERDUE"), payment: { ...evento("", "", "OVERDUE").payment, id: "pay_2" } })).toBe("ok");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ status: "inadimplente" });
+
+    expect(await processar({ ...evento("evt_4b", "PAYMENT_DELETED", "PENDING"), payment: { ...evento("", "", "PENDING").payment, id: "pay_2" } })).toBe("ok");
+    expect((await minha<{ pagamentos: { id: string }[] }>(U_OUTRO, B)).pagamentos.map((p) => p.id)).toEqual(["pay_1"]);
+
+    expect(await processar({ id: "evt_5", event: "SUBSCRIPTION_DELETED", subscription: { object: "subscription", id: "sub_1" } })).toBe("ok");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ status: "cancelada", assinada: false });
+    expect(await processar({ id: "evt_6", event: "PAYMENT_RECEIVED", payment: { id: "pay_x", subscription: "sub_de_outro_sistema" } })).toBe("ignorado");
+    expect((await um<{ n: number }>(`select count(*)::int as n from asaas_eventos`)).n).toBe(7);
+  });
+
+  it("painel do administrador: só o admin lista e ajusta", async () => {
+    const U_ADMIN = "00000000-0000-0000-0000-0000000000ad";
+    await db.query(`insert into auth.users values ($1, 'victor@app.com')`, [U_ADMIN]);
+    expect(await como(U_ANA, async () => (await um<{ s: boolean }>(`select sou_admin() as s`)).s)).toBe(false);
+    await expect(como(U_ANA, () => db.query(`select admin_petshops()`))).rejects.toThrow(/Só o administrador/);
+    await expect(como(U_ANA, () => db.query(`select admin_ajustar_assinatura($1, 'liberar', 30)`, [B]))).rejects.toThrow(/Só o administrador/);
+    expect(await como(U_ANA, async () => (await db.query(`select * from plataforma_admins`)).rows.length)).toBe(0);
+
+    await db.query(`insert into plataforma_admins (user_id) values ($1)`, [U_ADMIN]);
+    const lista = await como(U_ADMIN, async () => (await um<{ l: { id: string; nome: string; email: string; liberado: boolean; clientes: number; atendimentos_30d: number }[] }>(`select admin_petshops() as l`)).l);
+    const a = lista.find((x) => x.id === A)!;
+    expect(a).toMatchObject({ nome: "Patinhas", email: "ana@patinhas.com", liberado: true, clientes: 2 });
+    expect(lista.find((x) => x.id === B)).toMatchObject({ liberado: false });
+
+    const ajustar = (acao: string, valor: number | null = null) => como(U_ADMIN, () => db.query(`select admin_ajustar_assinatura($1, $2, $3)`, [B, acao, valor]));
+    await ajustar("liberar", 30);
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: true });
+    await ajustar("bloquear");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: false, status: "bloqueada" });
+    await ajustar("desbloquear");
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: true, status: "cancelada" });
+    await ajustar("valor", 39.9);
+    expect(await minha(U_OUTRO, B)).toMatchObject({ valor: 39.9 });
+    await db.query(`update assinaturas set liberado_ate = null where petshop_id = $1`, [B]);
+    await ajustar("estender_teste", 7);
+    expect(await minha(U_OUTRO, B)).toMatchObject({ liberado: true, status: "trial" });
+    await expect(ajustar("apagar")).rejects.toThrow(/Ação desconhecida/);
+  });
+
+  it("termos: só o dono aceita pelo pet shop", async () => {
+    await expect(como(U_BRUNO, () => db.query(`select aceitar_termos($1, '2026-10')`, [A]))).rejects.toThrow(/Só o dono/);
+    await como(U_ANA, () => db.query(`select aceitar_termos($1, '2026-10')`, [A]));
+    expect((await um<{ v: string }>(`select termos_versao as v from petshops where id = $1`, [A])).v).toBe("2026-10");
   });
 });

@@ -7,6 +7,7 @@ import { aceitarConvite, criarPetshop } from "@/data/cloud";
 import { normalizarWhatsapp } from "@/domain/format";
 import { Botao, Campo, Segmentado } from "@/components/ui";
 import { useSessao } from "@/components/providers";
+import { MARCA } from "@/lib/marca";
 
 type Caminho = "criar" | "convite";
 
@@ -17,6 +18,7 @@ export default function BemVindo() {
   const [dono, setDono] = useState("");
   const [zap, setZap] = useState("");
   const [codigo, setCodigo] = useState("");
+  const [aceite, setAceite] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -37,7 +39,8 @@ export default function BemVindo() {
     setEnviando(true);
     try {
       if (caminho === "criar") {
-        await criarPetshop(supabase(), { nome, donoNome: dono, whatsapp: zap.trim() ? normalizarWhatsapp(zap) : undefined });
+        if (!aceite) throw new Error("Para criar o pet shop, aceite os termos de uso e a política de privacidade.");
+        await criarPetshop(supabase(), { nome, donoNome: dono, whatsapp: zap.trim() ? normalizarWhatsapp(zap) : undefined, termos: MARCA.versaoTermos });
       } else {
         await aceitarConvite(supabase(), codigo);
         localStorage.removeItem(CHAVE_CONVITE);
@@ -90,6 +93,23 @@ export default function BemVindo() {
             <Campo rotulo="WhatsApp do pet shop (opcional)">
               <input className="input" inputMode="tel" value={zap} onChange={(e) => setZap(e.target.value)} placeholder="(11) 98765-4321" />
             </Campo>
+            <p className="rounded-2xl bg-brand-50 px-4 py-3 text-[13.5px] text-brand-700">
+              {MARCA.diasTeste} dias grátis com tudo liberado, sem cartão. Depois, R$ {MARCA.precoMensal}/mês, sem fidelidade.
+            </p>
+            <label className="flex items-start gap-3 text-[14px] text-muted">
+              <input type="checkbox" required className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" checked={aceite} onChange={(e) => setAceite(e.target.checked)} />
+              <span>
+                Li e aceito os{" "}
+                <a href="/termos" target="_blank" className="font-semibold text-brand-700 underline underline-offset-2">
+                  termos de uso
+                </a>{" "}
+                e a{" "}
+                <a href="/privacidade" target="_blank" className="font-semibold text-brand-700 underline underline-offset-2">
+                  política de privacidade
+                </a>
+                .
+              </span>
+            </label>
           </>
         ) : (
           <Campo rotulo="Código de convite">

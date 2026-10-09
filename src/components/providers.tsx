@@ -7,6 +7,7 @@ import { CircleAlert, CircleCheck, LocateFixed, PawPrint } from "lucide-react";
 import { aoErroDeSincronia, useApp } from "@/data/store";
 import { useRastreio } from "@/lib/rastreio";
 import { carregar } from "@/data/cloud";
+import { buscarAssinatura, demoAssinatura, souAdmin, useAssinatura } from "@/data/assinatura";
 import { CHAVE_DEMO, supabase, temSupabase } from "@/lib/supabase/client";
 import { cx } from "./ui";
 
@@ -19,8 +20,10 @@ const SessaoCtx = createContext<Sessao>({ email: null, temSupabase: false, sair:
 export const useSessao = () => useContext(SessaoCtx);
 
 const PUBLICAS = ["/entrar", "/bem-vindo"];
-/** Abrem com ou sem login e nunca redirecionam: o link do tutor e a troca de senha. */
-const ABERTAS = ["/acompanhar", "/nova-senha"];
+/** Abrem com ou sem login e nunca redirecionam: link do tutor, troca de senha, termos e página de vendas. */
+const ABERTAS = ["/acompanhar", "/nova-senha", "/termos", "/privacidade", "/conheca"];
+/** Pedem login, mas não um pet shop: o painel do administrador da plataforma. */
+const SO_LOGIN = ["/admin"];
 
 type Etapa = "carregando" | "pronto" | "publica";
 
@@ -29,6 +32,7 @@ export function Providers({ children }: { children: ReactNode }) {
   const router = useRouter();
   const publica = PUBLICAS.some((p) => caminho.startsWith(p));
   const aberta = ABERTAS.some((p) => caminho.startsWith(p));
+  const soLogin = SO_LOGIN.some((p) => caminho.startsWith(p));
   const [etapa, setEtapa] = useState<Etapa>("carregando");
   const [email, setEmail] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<Aviso[]>([]);
@@ -56,6 +60,7 @@ export function Providers({ children }: { children: ReactNode }) {
         return;
       }
       if (!temSupabase) {
+        useAssinatura.getState().definir(demoAssinatura());
         if (vivo) setEtapa("pronto");
         return;
       }
@@ -74,16 +79,26 @@ export function Providers({ children }: { children: ReactNode }) {
       if (!vivo) return;
 
       if (!sessao) {
-        if (localStorage.getItem(CHAVE_DEMO) === "1" && !caminho.startsWith("/bem-vindo")) return setEtapa("pronto");
+        if (localStorage.getItem(CHAVE_DEMO) === "1" && !caminho.startsWith("/bem-vindo") && !soLogin) {
+          useAssinatura.getState().definir(demoAssinatura());
+          return setEtapa("pronto");
+        }
         setEtapa("publica");
         // Sem login, o convite passa primeiro pelo cadastro.
         if (caminho.startsWith("/bem-vindo")) router.replace("/entrar" + window.location.search);
+        // Visitante sem conta na página principal vê a página de vendas.
+        else if (caminho === "/") router.replace("/conheca");
         else if (!publica) router.replace("/entrar");
         return;
       }
 
       setEmail(sessao.user.email ?? null);
       localStorage.removeItem(CHAVE_DEMO);
+      if (soLogin) {
+        // O painel do administrador confere a permissão sozinho (RPC sou_admin).
+        setEtapa("pronto");
+        return;
+      }
       try {
         const c = await carregar(sb, sessao.user.id);
         if (!vivo) return;
@@ -92,6 +107,9 @@ export function Providers({ children }: { children: ReactNode }) {
           if (!caminho.startsWith("/bem-vindo")) router.replace("/bem-vindo");
           return;
         }
+        const [info, admin] = await Promise.all([buscarAssinatura(sb, c.petshopId).catch(() => null), souAdmin(sb)]);
+        if (!vivo) return;
+        useAssinatura.getState().definir(info, admin);
         useApp.getState().entrarNuvem(sb, sessao.user.id, c.db, c.petshopId);
         setEtapa("pronto");
         if (publica) router.replace("/");

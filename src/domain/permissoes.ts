@@ -21,10 +21,11 @@ export type Area =
   | "servicos"
   | "produtos"
   | "equipe"
+  | "assinatura"
   | "configuracoes";
 
 const AREAS: Record<Papel, Area[]> = {
-  dono: ["inicio", "fila", "rotas", "agenda", "clientes", "mensagens", "financeiro", "comissoes", "planos", "servicos", "produtos", "equipe", "configuracoes"],
+  dono: ["inicio", "fila", "rotas", "agenda", "clientes", "mensagens", "financeiro", "comissoes", "planos", "servicos", "produtos", "equipe", "assinatura", "configuracoes"],
   recepcao: ["inicio", "rotas", "agenda", "clientes", "mensagens", "financeiro", "planos", "servicos", "produtos"],
   banhista: ["fila"],
   motorista: ["rotas"],
@@ -70,6 +71,7 @@ function areaDaRota(caminho: string): Area | null {
     ["/servicos", "servicos"],
     ["/produtos", "produtos"],
     ["/equipe", "equipe"],
+    ["/assinatura", "assinatura"],
   ];
   return mapa.find(([prefixo]) => caminho === prefixo || caminho.startsWith(prefixo + "/"))?.[1] ?? null;
 }

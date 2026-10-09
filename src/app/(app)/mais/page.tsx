@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Car, Check, ChevronRight, ClipboardList, Clock, HandCoins, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
+import { Car, Check, ChevronRight, ClipboardList, Clock, CreditCard, HandCoins, ShieldCheck, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
 import { useApp, useDb, useEu } from "@/data/store";
 import { comissoesPendentes, resumoCaixa, planosAVencer, profissionais, resumoProfissional, rotasDoDia, totalComissao } from "@/domain/rules";
 import { NOME_PAPEL, inicioDoPapel, pode } from "@/domain/permissoes";
 import { hoje, iniciais, moedaCurta } from "@/domain/format";
 import { Botao, Chip, Folha, Titulo, cx } from "@/components/ui";
 import { useSessao, useToast } from "@/components/providers";
+import { useAssinatura } from "@/data/assinatura";
+import { situacao } from "@/domain/assinatura";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -35,6 +37,8 @@ export default function Mais() {
   const nRotas = rotas.buscar.length + rotas.entregar.length;
   const aPagar = pode(papel, "comissoes") ? profissionais(db).reduce((s, m) => s + totalComissao(db, comissoesPendentes(db, m.id, T)), 0) : 0;
   const temItens = mostrarFila || !operacional || pode(papel, "rotas");
+  const assinatura = useAssinatura((s) => s.info);
+  const souAdmin = useAssinatura((s) => s.admin);
 
   return (
     <div>
@@ -77,6 +81,8 @@ export default function Mais() {
           )}
           {pode(papel, "equipe") && <Item href="/equipe" icone={<UserCog />} titulo="Equipe" detalhe={`${db.membros.filter((m) => m.ativo).length} pessoas`} />}
           {pode(papel, "produtos") && <Item href="/produtos" icone={<ShoppingBag />} titulo="Produtos" selo={<Chip tom="neutral">Em breve</Chip>} />}
+          {pode(papel, "assinatura") && assinatura?.dono && <Item href="/assinatura" icone={<CreditCard />} titulo="Assinatura" detalhe={situacao(assinatura).titulo} />}
+          {souAdmin && <Item href="/admin" icone={<ShieldCheck />} titulo="Painel do administrador" detalhe="Pet shops, testes e assinaturas" />}
         </ul>
       )}
 
