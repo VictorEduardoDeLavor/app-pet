@@ -508,7 +508,9 @@ describe("schema Supabase", () => {
     expect(await processar({ id: "evt_5", event: "SUBSCRIPTION_DELETED", subscription: { object: "subscription", id: "sub_1" } })).toBe("ok");
     expect(await minha(U_OUTRO, B)).toMatchObject({ status: "cancelada", assinada: false });
     expect(await processar({ id: "evt_6", event: "PAYMENT_RECEIVED", payment: { id: "pay_x", subscription: "sub_de_outro_sistema" } })).toBe("ignorado");
-    expect((await um<{ n: number }>(`select count(*)::int as n from asaas_eventos`)).n).toBe(7);
+    // Cobrança de outro negócio na mesma conta do Asaas: não fica guardada (0014).
+    expect((await um<{ n: number }>(`select count(*)::int as n from asaas_eventos`)).n).toBe(6);
+    expect((await um<{ n: number }>(`select count(*)::int as n from asaas_eventos where id = 'evt_6'`)).n).toBe(0);
   });
 
   it("painel do administrador: só o admin lista e ajusta", async () => {
@@ -678,6 +680,13 @@ describe("schema Supabase", () => {
     expect((await um<{ pago: boolean }>(`select pago from atendimentos where id = $1`, [id])).pago).toBe(true);
     await como(U_ANA, () => db.query(`update lancamentos set status = 'pendente', forma_pagamento = null, pago_em = null where atendimento_id = $1`, [id]));
     expect((await um<{ pago: boolean }>(`select pago from atendimentos where id = $1`, [id])).pago).toBe(false);
+  });
+
+  it("configuração do Asaas (impressão do token do webhook) só o servidor lê", async () => {
+    await db.query(`insert into plataforma_config (chave, valor) values ('asaas_webhook_token_sha256', 'abc')`);
+    expect(await como(U_ANA, async () => (await db.query(`select * from plataforma_config`)).rows.length)).toBe(0);
+    expect(await anon(async () => (await db.query(`select * from plataforma_config`)).rows.length)).toBe(0);
+    await expect(como(U_ANA, () => db.query(`insert into plataforma_config (chave, valor) values ('x', 'y')`))).rejects.toThrow(/row-level security/);
   });
 
   it("slug do link de agendamento só aceita letras minúsculas, números e hífen", async () => {

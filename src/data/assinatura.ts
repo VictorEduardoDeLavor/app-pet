@@ -141,3 +141,29 @@ export async function ajustarAssinaturaAdmin(sb: Sb, petshopId: string, acao: Ac
   const { error } = await sb.rpc("admin_ajustar_assinatura", { p_petshop: petshopId, p_acao: acao, p_valor: valor ?? null });
   if (error) throw new Error(error.message);
 }
+
+// ---------------------------------------------------------------------------
+// Administrador: ligação com o Asaas
+// ---------------------------------------------------------------------------
+
+export interface StatusAsaas {
+  chave: boolean;
+  ambiente: "sandbox" | "producao" | null;
+  conta: string | null;
+  webhook: boolean;
+  webhookAmbiente: string | null;
+  conectadoEm: string | null;
+  ultimoEvento: string | null;
+  ultimoEventoTipo: string | null;
+  urlWebhook: string;
+}
+
+export const statusAsaas = (sb: Sb) => chamar<StatusAsaas>(sb, { acao: "admin_status" });
+
+/** Confere a chave e cria/atualiza o webhook na conta do Asaas (token novo a cada conexão). */
+export const conectarAsaas = (sb: Sb) => chamar<{ ok: true; conta: string; ambiente: string; webhook: "criado" | "atualizado" }>(sb, { acao: "admin_conectar" });
+
+/** Muda a mensalidade no app e, se o pet shop já assinou, também no Asaas (inclusive a fatura em aberto). */
+export const valorAdmin = (sb: Sb, petshopId: string, valor: number) => chamar<{ ok: true; noAsaas: boolean }>(sb, { acao: "admin_valor", petshopId, valor });
+
+export const sincronizarAdmin = (sb: Sb, petshopId: string) => chamar<{ ok: true; cobrancas: number }>(sb, { acao: "admin_sincronizar", petshopId });

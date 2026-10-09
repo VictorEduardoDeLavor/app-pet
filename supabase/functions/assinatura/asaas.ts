@@ -70,12 +70,15 @@ export class Asaas {
     return json as T;
   }
 
-  criarCliente(c: { nome: string; documento: string; email?: string | null; celular?: string | null; referencia: string }) {
+  /**
+   * Cliente do Asaas = o pet shop que paga a mensalidade. Sem celular de propósito: as notificações
+   * padrão do Asaas mandam SMS e ligação (cobrados por envio); fica só o e-mail com a fatura.
+   */
+  criarCliente(c: { nome: string; documento: string; email?: string | null; referencia: string }) {
     return this.pedir<{ id: string }>("POST", "/customers", {
       name: c.nome,
       cpfCnpj: c.documento,
       email: c.email || undefined,
-      mobilePhone: c.celular || undefined,
       externalReference: c.referencia,
     });
   }
@@ -101,6 +104,43 @@ export class Asaas {
     return r?.data ?? [];
   }
 
+  /** Novo valor da mensalidade, inclusive nas faturas ainda em aberto. */
+  atualizarValorAssinatura(id: string, valor: number) {
+    return this.pedir<{ id: string }>("POST", `/subscriptions/${id}`, { value: valor, updatePendingPayments: true });
+  }
+
+  /** Dados da conta dona da chave (confere se a chave funciona e de quem é). */
+  conta() {
+    return this.pedir<{ name?: string; companyName?: string; tradingName?: string; email?: string; cpfCnpj?: string }>("GET", "/myAccount/commercialInfo/");
+  }
+
+  async listarWebhooks(): Promise<WebhookAsaas[]> {
+    const r = await this.pedir<{ data: WebhookAsaas[] }>("GET", "/webhooks?limit=100");
+    return r?.data ?? [];
+  }
+
+  /** Cria ou atualiza (pela URL) o webhook que avisa o app de cada pagamento. */
+  async conectarWebhook(w: { url: string; email: string; token: string; nome: string }): Promise<{ id: string; criado: boolean }> {
+    const corpo = {
+      name: w.nome,
+      url: w.url,
+      email: w.email,
+      enabled: true,
+      interrupted: false,
+      apiVersion: 3,
+      authToken: w.token,
+      sendType: "SEQUENTIALLY",
+      events: EVENTOS_WEBHOOK,
+    };
+    const existente = (await this.listarWebhooks()).find((x) => x.url === w.url);
+    if (existente) {
+      await this.pedir("PUT", `/webhooks/${existente.id}`, corpo);
+      return { id: existente.id, criado: false };
+    }
+    const novo = await this.pedir<{ id: string }>("POST", "/webhooks", corpo);
+    return { id: novo.id, criado: true };
+  }
+
   async cancelarAssinatura(id: string): Promise<void> {
     try {
       await this.pedir("DELETE", `/subscriptions/${id}`);
@@ -109,6 +149,47 @@ export class Asaas {
     }
   }
 }
+
+export type WebhookAsaas = { id: string; name?: string; url: string; enabled?: boolean; interrupted?: boolean; events?: string[] };
+
+/** O que o app precisa ouvir do Asaas: cobranças das assinaturas e o fim de uma assinatura. */
+export const EVENTOS_WEBHOOK = [
+  "PAYMENT_CREATED",
+  "PAYMENT_UPDATED",
+  "PAYMENT_CONFIRMED",
+  "PAYMENT_RECEIVED",
+  "PAYMENT_OVERDUE",
+  "PAYMENT_DELETED",
+  "PAYMENT_RESTORED",
+  "PAYMENT_REFUNDED",
+  "PAYMENT_PARTIALLY_REFUNDED",
+  "PAYMENT_RECEIVED_IN_CASH_UNDONE",
+  "PAYMENT_CHARGEBACK_REQUESTED",
+  "SUBSCRIPTION_INACTIVATED",
+  "SUBSCRIPTION_DELETED",
+];
+
+/** Token do webhook: 64 caracteres aleatórios (o Asaas pede de 32 a 255, sem espaços). */
+export function novoTokenWebhook(): string {
+  return (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+}
+
+/** SHA-256 em hexadecimal: o banco guarda só a impressão do token, nunca o token. */
+export async function sha256Hex(texto: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Comparação em tempo constante (não revela quantos caracteres bateram). */
+export function iguais(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+/** Menor mensalidade que o Asaas aceita cobrar (boleto e Pix). */
+export const VALOR_MINIMO = 5;
 
 // ---------------------------------------------------------------------------
 // Regras puras

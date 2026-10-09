@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Asaas, ErroAsaas, ambienteDaChave, celularAsaas, documentoValido, faturaEmAberto, linhaDaCobranca, primeiroVencimento } from "./asaas";
+import {
+  Asaas,
+  EVENTOS_WEBHOOK,
+  ErroAsaas,
+  ambienteDaChave,
+  celularAsaas,
+  documentoValido,
+  faturaEmAberto,
+  iguais,
+  linhaDaCobranca,
+  novoTokenWebhook,
+  primeiroVencimento,
+  sha256Hex,
+} from "./asaas";
 
 type Chamada = { url: string; init?: RequestInit };
 
@@ -21,13 +34,13 @@ describe("Asaas", () => {
       [200, { data: [{ id: "pay_1", value: 49, dueDate: "2026-10-23", status: "PENDING", billingType: "UNDEFINED", invoiceUrl: "https://sandbox.asaas.com/i/1" }] }],
     ]);
     const api = new Asaas("$aact_hmlg_x", "sandbox", f);
-    const c = await api.criarCliente({ nome: "Patinhas", documento: "52998224725", email: "ana@pet.com", celular: "11988887777", referencia: "ps-1" });
+    const c = await api.criarCliente({ nome: "Patinhas", documento: "52998224725", email: "ana@pet.com", referencia: "ps-1" });
     const s = await api.criarAssinatura({ cliente: c.id, valor: 49, vencimento: "2026-10-23", descricao: "APP PET", referencia: "ps-1" });
     const cobrancas = await api.cobrancasDaAssinatura(s.id);
 
     expect(chamadas[0].url).toBe("https://api-sandbox.asaas.com/v3/customers");
     expect((chamadas[0].init!.headers as Record<string, string>).access_token).toBe("$aact_hmlg_x");
-    expect(JSON.parse(String(chamadas[0].init!.body))).toMatchObject({ name: "Patinhas", cpfCnpj: "52998224725", externalReference: "ps-1" });
+    expect(JSON.parse(String(chamadas[0].init!.body))).toEqual({ name: "Patinhas", cpfCnpj: "52998224725", email: "ana@pet.com", externalReference: "ps-1" }); // sem celular: sem SMS nem ligação cobrados
     expect(JSON.parse(String(chamadas[1].init!.body))).toEqual({
       customer: "cus_1", billingType: "UNDEFINED", value: 49, nextDueDate: "2026-10-23", cycle: "MONTHLY", description: "APP PET", externalReference: "ps-1",
     });
@@ -79,5 +92,47 @@ describe("Asaas", () => {
     ]);
     expect(f?.link).toBe("b");
     expect(faturaEmAberto([{ status: "RECEIVED", vencimento: "2026-09-01" }])).toBeUndefined();
+  });
+
+  it("conecta o webhook: cria quando não existe e atualiza (com token novo) quando a URL já está lá", async () => {
+    const url = "https://x.supabase.co/functions/v1/asaas-webhook";
+    const { f, chamadas } = falso([
+      [200, { data: [{ id: "wh_outro", url: "https://outro-sistema.com/hook" }] }],
+      [200, { id: "wh_1" }],
+      [200, { data: [{ id: "wh_1", url }] }],
+      [200, { id: "wh_1" }],
+    ]);
+    const api = new Asaas("$aact_prod_x", "producao", f);
+    expect(await api.conectarWebhook({ url, email: "v@x.com", token: "t".repeat(40), nome: "APP PET · assinaturas" })).toEqual({ id: "wh_1", criado: true });
+    expect(chamadas[0].url).toBe("https://api.asaas.com/v3/webhooks?limit=100");
+    expect(chamadas[1].init!.method).toBe("POST");
+    expect(JSON.parse(String(chamadas[1].init!.body))).toEqual({
+      name: "APP PET · assinaturas", url, email: "v@x.com", enabled: true, interrupted: false, apiVersion: 3,
+      authToken: "t".repeat(40), sendType: "SEQUENTIALLY", events: EVENTOS_WEBHOOK,
+    });
+    expect(await api.conectarWebhook({ url, email: "v@x.com", token: "u".repeat(40), nome: "APP PET · assinaturas" })).toEqual({ id: "wh_1", criado: false });
+    expect(chamadas[3].init!.method).toBe("PUT");
+    expect(chamadas[3].url).toBe("https://api.asaas.com/v3/webhooks/wh_1");
+  });
+
+  it("muda o valor da assinatura também nas faturas em aberto e confere a conta", async () => {
+    const { f, chamadas } = falso([[200, { id: "sub_1" }], [200, { companyName: "Victor ME" }]]);
+    const api = new Asaas("$aact_prod_x", "producao", f);
+    await api.atualizarValorAssinatura("sub_1", 59.9);
+    expect(chamadas[0].url).toBe("https://api.asaas.com/v3/subscriptions/sub_1");
+    expect(JSON.parse(String(chamadas[0].init!.body))).toEqual({ value: 59.9, updatePendingPayments: true });
+    expect((await api.conta()).companyName).toBe("Victor ME");
+    expect(chamadas[1].url).toBe("https://api.asaas.com/v3/myAccount/commercialInfo/");
+    expect(chamadas[1].init!.body).toBeUndefined();
+  });
+
+  it("token do webhook: 64 caracteres sem espaço, impressão SHA-256 e comparação", async () => {
+    const t = novoTokenWebhook();
+    expect(t).toMatch(/^[0-9a-f]{64}$/);
+    expect(novoTokenWebhook()).not.toBe(t);
+    expect(await sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    expect(iguais("abc", "abc")).toBe(true);
+    expect(iguais("abc", "abd")).toBe(false);
+    expect(iguais("abc", "abcd")).toBe(false);
   });
 });

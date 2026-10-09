@@ -2,8 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Ban, CalendarPlus, CircleDollarSign, LockOpen, MessageCircle, RefreshCw, Search, ShieldCheck, Store, Unlock } from "lucide-react";
-import { ajustarAssinaturaAdmin, listarPetshopsAdmin, souAdmin, type AcaoAdmin, type PetshopAdmin } from "@/data/assinatura";
+import { ArrowLeft, Ban, CalendarPlus, CircleCheck, CircleDollarSign, CreditCard, LockOpen, MessageCircle, PlugZap, RefreshCw, Search, ShieldCheck, Store, TriangleAlert, Unlock } from "lucide-react";
+import {
+  ajustarAssinaturaAdmin,
+  conectarAsaas,
+  listarPetshopsAdmin,
+  sincronizarAdmin,
+  souAdmin,
+  statusAsaas,
+  valorAdmin,
+  type AcaoAdmin,
+  type PetshopAdmin,
+  type StatusAsaas,
+} from "@/data/assinatura";
 import { situacao } from "@/domain/assinatura";
 import { supabase } from "@/lib/supabase/client";
 import { MARCA } from "@/lib/marca";
@@ -103,6 +114,8 @@ export default function Admin() {
         <Numero rotulo="Suspensos" valor={String(numeros.suspensos)} />
       </div>
 
+      <CartaoAsaas />
+
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <label className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -149,6 +162,91 @@ export default function Admin() {
 
       <AcoesFolha p={aberto} onFechar={() => setAberto(null)} onFeito={() => carregar()} />
     </main>
+  );
+}
+
+const quando = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+
+/** Situação da cobrança automática: chave cadastrada, conta, webhook ligado e último aviso recebido. */
+function CartaoAsaas() {
+  const toast = useToast();
+  const [st, setSt] = useState<StatusAsaas | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [conectando, setConectando] = useState(false);
+
+  const ler = useCallback(async () => {
+    try {
+      setSt(await statusAsaas(supabase()));
+      setErro(null);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível ler a situação do Asaas.");
+    }
+  }, []);
+  useEffect(() => {
+    void ler();
+  }, [ler]);
+
+  async function conectar() {
+    setConectando(true);
+    try {
+      const r = await conectarAsaas(supabase());
+      toast(`Asaas conectado (${r.conta}) · webhook ${r.webhook}`);
+      await ler();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Não foi possível conectar.", "erro");
+    } finally {
+      setConectando(false);
+    }
+  }
+
+  const ambienteTrocou = !!st?.webhook && !!st.ambiente && st.webhookAmbiente !== st.ambiente;
+  const pronto = !!st?.chave && !!st.webhook && !ambienteTrocou;
+
+  return (
+    <section className={cx("mt-6 rounded-[22px] border px-4 py-4", pronto ? "border-ok-500/25 bg-ok-50" : "border-warn-100 bg-warn-50")}>
+      <div className="flex items-start gap-3">
+        <span className={cx("grid h-10 w-10 shrink-0 place-items-center rounded-full", pronto ? "bg-ok-500 text-white" : "bg-white text-warn-700")}>
+          {pronto ? <CircleCheck className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className={cx("text-[15.5px] font-semibold", pronto ? "text-ok-700" : "text-warn-700")}>
+            {pronto ? "Cobrança automática ligada" : "Cobrança automática (Asaas)"}
+          </p>
+          {erro ? (
+            <p className="text-[13px] text-bad-700">{erro}</p>
+          ) : !st ? (
+            <p className="text-[13px] text-muted">Verificando…</p>
+          ) : (
+            <dl className="mt-1.5 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1 text-[13px]">
+              <dt className="text-muted">Chave de API</dt>
+              <dd>{st.chave ? `cadastrada (${st.ambiente === "sandbox" ? "sandbox, de teste" : "produção"})` : "falta cadastrar"}</dd>
+              <dt className="text-muted">Conta</dt>
+              <dd className="truncate">{st.conta ?? "—"}</dd>
+              <dt className="text-muted">Webhook</dt>
+              <dd>{st.webhook ? `ligado em ${quando(st.conectadoEm)}` : "não ligado"}</dd>
+              <dt className="text-muted">Último aviso</dt>
+              <dd className="truncate">{st.ultimoEvento ? `${quando(st.ultimoEvento)} · ${st.ultimoEventoTipo ?? ""}` : "nenhum ainda"}</dd>
+            </dl>
+          )}
+          {ambienteTrocou && (
+            <p className="mt-2 flex items-center gap-1.5 text-[12.5px] font-medium text-warn-700">
+              <TriangleAlert className="h-3.5 w-3.5" /> A chave mudou de ambiente: conecte de novo para ligar o webhook nesta conta.
+            </p>
+          )}
+          {st && !st.chave && (
+            <p className="mt-2 text-[12.5px] text-muted">
+              Gere a chave no Asaas (Integrações › Chaves de API) e cadastre no Supabase como segredo <code>ASAAS_API_KEY</code>. Depois volte aqui e conecte.
+            </p>
+          )}
+        </div>
+      </div>
+      {st?.chave && (
+        <Botao variante={pronto ? "contorno" : "primario"} className="mt-3 !h-11" disabled={conectando} onClick={conectar} icone={<PlugZap className="h-4 w-4" />}>
+          {conectando ? "Conectando…" : st.webhook ? "Reconectar (gera um token novo)" : "Conectar o Asaas"}
+        </Botao>
+      )}
+    </section>
   );
 }
 
@@ -239,9 +337,19 @@ function AcoesFolha({ p, onFechar, onFeito }: { p: PetshopAdmin | null; onFechar
         <p className="-mt-1 text-[12px] text-muted">&quot;Liberar 30 dias&quot; serve para quem pagou por fora (Pix direto) ou para o piloto.</p>
         <form
           className="flex items-end gap-2"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            fazer("valor", Number(valor.replace(",", ".")), "Valor da mensalidade atualizado.");
+            setEnviando(true);
+            try {
+              const r = await valorAdmin(supabase(), p.id, Number(valor.replace(",", ".")));
+              toast(r.noAsaas ? "Mensalidade atualizada no app e no Asaas." : "Mensalidade atualizada.");
+              onFeito();
+              onFechar();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Não foi possível.", "erro");
+            } finally {
+              setEnviando(false);
+            }
           }}
         >
           <div className="flex-1">
@@ -253,7 +361,28 @@ function AcoesFolha({ p, onFechar, onFeito }: { p: PetshopAdmin | null; onFechar
             <CircleDollarSign className="h-5 w-5" />
           </button>
         </form>
-        <p className="-mt-2 text-[12px] text-muted">Vale para a próxima assinatura criada; quem já assinou mantém o valor no Asaas.</p>
+        <p className="-mt-2 text-[12px] text-muted">Quem já assinou: muda também no Asaas, inclusive na fatura em aberto. Mínimo R$ 5,00.</p>
+        {p.assinada && (
+          <Botao
+            variante="fantasma"
+            disabled={enviando}
+            icone={<RefreshCw className="h-4 w-4" />}
+            onClick={async () => {
+              setEnviando(true);
+              try {
+                const r = await sincronizarAdmin(supabase(), p.id);
+                toast(`${r.cobrancas} ${r.cobrancas === 1 ? "cobrança conferida" : "cobranças conferidas"} no Asaas.`);
+                onFeito();
+              } catch (err) {
+                toast(err instanceof Error ? err.message : "Não foi possível.", "erro");
+              } finally {
+                setEnviando(false);
+              }
+            }}
+          >
+            Conferir cobranças no Asaas
+          </Botao>
+        )}
         {p.status === "bloqueada" ? (
           <Botao variante="fantasma" disabled={enviando} onClick={() => fazer("desbloquear", undefined, "Desbloqueado.")} icone={<Unlock className="h-4 w-4" />}>
             Desbloquear

@@ -75,9 +75,13 @@ No computador (a partir de 1024 px) a barra de baixo vira menu lateral, as folha
 
 - Todo pet shop nasce com **14 dias de teste** (`assinaturas.teste_ate`) e mensalidade de **R$ 49** (`assinaturas.valor`, ajustável por pet shop no painel).
 - **Acesso:** liberado no teste, com a mensalidade paga até `pago_ate` (+3 dias de tolerância) ou com `liberado_ate` dado pelo administrador. Fora disso o RLS fecha as tabelas de operação (`meus_petshops()` e `tem_papel()` passam por `assinatura_liberada()`); dono e equipe ainda veem o pet shop e a situação para regularizar. Nada é apagado.
-- **Cobrança:** Edge Function `assinatura` cria o cliente e a assinatura mensal no Asaas (`billingType: UNDEFINED`: o pet shop escolhe Pix, boleto ou cartão na fatura), com o primeiro vencimento no fim do teste. Ações: `assinar`, `sincronizar`, `cancelar`.
-- **Webhook:** Edge Function `asaas-webhook` confere o header `asaas-access-token` e chama `asaas_processar_evento()` (grava o evento uma vez, atualiza as faturas, recalcula `pago_ate`).
-- **Segredos das Edge Functions** (Supabase → Edge Functions → Secrets): `ASAAS_API_KEY` (chave do Asaas; `$aact_hmlg_` = sandbox, `$aact_prod_` = produção) e `ASAAS_WEBHOOK_TOKEN` (o mesmo token cadastrado no webhook do Asaas, URL `https://ytsimguduvxjfbesgzub.supabase.co/functions/v1/asaas-webhook`). Sem a chave, o botão Assinar avisa que o pagamento online ainda não está ligado e o administrador libera à mão.
+- **Cobrança:** Edge Function `assinatura` cria o cliente e a assinatura mensal no Asaas (`billingType: UNDEFINED`: o pet shop escolhe Pix, boleto ou cartão na fatura), com o primeiro vencimento no fim do teste. O cliente vai sem celular (evita SMS e ligação cobrados por envio); a fatura chega por e-mail. Mínimo de R$ 5. Ações do dono: `assinar`, `sincronizar`, `cancelar`. Ações do administrador: `admin_status`, `admin_conectar`, `admin_valor` (muda o valor no Asaas e no app, inclusive faturas em aberto), `admin_sincronizar`.
+- **Webhook:** Edge Function `asaas-webhook` confere o header `asaas-access-token` e chama `asaas_processar_evento()` (grava o evento uma vez, atualiza as faturas, recalcula `pago_ate`). Cobranças de outros negócios na mesma conta do Asaas são ignoradas e não ficam guardadas.
+- **Ligar o Asaas (uma vez):**
+  1. No Asaas: Integrações › Chaves de API › gerar chave (sem lista de IPs: os IPs das Edge Functions mudam). Para receber Pix, a conta precisa de uma chave Pix cadastrada.
+  2. No Supabase: Edge Functions › Secrets › `ASAAS_API_KEY` (`$aact_prod_` = produção, `$aact_hmlg_` = sandbox).
+  3. No app, em `/admin`: botão **Conectar o Asaas**. Ele confere a chave, cria (ou atualiza) o webhook na conta com um token aleatório novo e guarda só a impressão SHA-256 do token em `plataforma_config`. "Reconectar" troca o token. O cartão mostra a conta, o ambiente e o último aviso recebido.
+  - `ASAAS_WEBHOOK_TOKEN` é opcional (só para quem cadastrar o webhook à mão). Sem `ASAAS_API_KEY`, o botão Assinar avisa que o pagamento online ainda não está ligado e o administrador libera à mão.
 - Nome, preço, dias de teste, contato do suporte e versão dos termos ficam em `src/lib/marca.ts`.
 
 ## Como está organizado
@@ -87,7 +91,7 @@ src/domain/       regras de negócio puras (rules.ts) + mensagens + formatação
 src/data/         estado do protótipo (Zustand + localStorage) e dados de exemplo
 src/components/   UI base, navegação, folhas de WhatsApp, pagamento e pet
 src/app/(app)/    telas
-supabase/         migrations (0001 schema; 0002–0005 convites e comissão; 0006 advisors; 0007–0009 acompanhamento e leva e traz; 0010 assinatura, admin e termos) + Edge Functions (assinatura, asaas-webhook) + teste do schema em Postgres embutido (PGlite)
+supabase/         migrations (0001 schema; 0002–0005 convites e comissão; 0006 advisors; 0007–0009 acompanhamento e leva e traz; 0010 assinatura, admin e termos; 0011–0013 produtos, agendamento online, vacinas e fidelidade; 0014 conexão com o Asaas) + Edge Functions (assinatura, asaas-webhook) + teste do schema em Postgres embutido (PGlite)
 ```
 
 As regras vivem em dois lugares que espelham uma à outra:
