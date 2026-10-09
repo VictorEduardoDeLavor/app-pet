@@ -15,6 +15,7 @@ export const VARIAVEIS = [
   { chave: "valor", rotulo: "Valor" },
   { chave: "petshop", rotulo: "Pet shop" },
   { chave: "saldo_plano", rotulo: "Saldo do plano" },
+  { chave: "link", rotulo: "Link de acompanhamento" },
 ] as const;
 
 export type Variaveis = Partial<Record<(typeof VARIAVEIS)[number]["chave"], string>>;
@@ -34,6 +35,14 @@ export const MODELOS_PADRAO: MensagemModelo[] = [
     titulo: "Lembrete de agendamento",
     texto:
       "Olá, {tutor}! Aqui é da {petshop}. Passando para lembrar que {quando}, às {hora}, {pet} tem {servico} com a gente. Até lá!",
+    ativo: true,
+  },
+  {
+    id: "msg_acompanhamento",
+    gatilho: "acompanhamento",
+    titulo: "Acompanhe seu pet",
+    texto:
+      "Olá, {tutor}! {pet} está com a gente na {petshop}. Acompanhe cada etapa do banho, com fotos, por este link: {link}",
     ativo: true,
   },
   {
@@ -85,12 +94,19 @@ export function quando(data: string, ref: string = hoje()): string {
   return `no dia ${dataCurta(data)}`;
 }
 
+/** Link que o tutor abre para acompanhar o atendimento (sem senha). */
+export function linkAcompanhamento(atd: Pick<Atendimento, "token">, origem?: string): string {
+  const base = origem ?? (typeof window !== "undefined" ? window.location.origin : "");
+  return `${base}/acompanhar/${atd.token}`;
+}
+
 export function variaveisDoAtendimento(db: Db, atd: Atendimento, ref: string = hoje()): Variaveis {
   const tutor = porId(db.tutores, atd.tutorId);
   const pet = porId(db.pets, atd.petId);
   const saldo = atd.planoPetId ? saldoPlano(db, atd.planoPetId) : undefined;
   const valor = atd.valorTotal > 0 ? moeda(atd.valorTotal) : "coberto pelo plano";
   return {
+    link: linkAcompanhamento(atd),
     tutor: tutor ? primeiroNome(tutor.nome) : undefined,
     pet: pet?.nome,
     servico: atd.itens.map((i) => i.nome.toLowerCase()).join(" + "),
@@ -110,6 +126,7 @@ export function gatilhoSugerido(status: StatusAtendimento): GatilhoMensagem {
     case "confirmado":
       return "lembrete";
     case "em_atendimento":
+      return "acompanhamento";
     case "finalizado":
       return "pet_pronto";
     default:

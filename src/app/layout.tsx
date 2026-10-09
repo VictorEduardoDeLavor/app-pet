@@ -3,7 +3,10 @@ import "@fontsource-variable/inter";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
+const SITE = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: "APP PET",
   description: "Agenda, clientes, planos e caixa para banho e tosa.",
   manifest: "/manifest.webmanifest",

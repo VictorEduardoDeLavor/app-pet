@@ -5,7 +5,11 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
 import {
   Ban,
+  Camera,
+  Car,
   Check,
+  Copy,
+  ExternalLink,
   ChevronRight,
   ClipboardList,
   CreditCard,
@@ -23,14 +27,17 @@ import {
 } from "lucide-react";
 import { useApp, useDb, usePapel } from "@/data/store";
 import type { GatilhoMensagem, StatusAtendimento } from "@/domain/types";
-import { NOME_STATUS, porId, profissionais, receitaPendenteDoAtendimento, saldoPlano, statusEfetivoPlano, usosDoPlano } from "@/domain/rules";
+import { NOME_STATUS, NOME_TRANSPORTE, etapasDoAtendimento, porId, profissionais, receitaPendenteDoAtendimento, saldoPlano, statusEfetivoPlano, usosDoPlano } from "@/domain/rules";
+import { montarLinhaDoTempo } from "@/domain/linha-tempo";
 import { NOME_FORMA, NOME_PORTE, dataLonga, duracao, hoje, moeda, telefone } from "@/domain/format";
-import { gatilhoSugerido } from "@/domain/messages";
+import { gatilhoSugerido, linkAcompanhamento } from "@/domain/messages";
 import { Aviso, Botao, Chip, Folha, PetAvatar, Progresso, StatusChip, TituloVoltar, Vazio, cx } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { PagamentoFolha } from "@/components/pagamento-folha";
 import { useToast } from "@/components/providers";
-import { pode, transicoesDoPapel } from "@/domain/permissoes";
+import { pode, registraEtapasDoBanho, transicoesDoPapel } from "@/domain/permissoes";
+import { EtapaFolha, LinhaDoTempo } from "@/components/acompanhamento";
+import { TransporteFolha } from "@/components/transporte";
 
 const ACOES: Record<StatusAtendimento, { rotulo: string; Icone: typeof Check; perigo?: boolean }> = {
   agendado: { rotulo: "Voltar para agendado", Icone: CalendarCheck },
@@ -63,6 +70,8 @@ function AtendimentoDetalhe() {
   const [profs, setProfs] = useState(false);
   const [zap, setZap] = useState<GatilhoMensagem | null>(recemCriado && falaComTutor ? "confirmacao" : null);
   const [pagando, setPagando] = useState(false);
+  const [etapa, setEtapa] = useState(false);
+  const [transporte, setTransporte] = useState(false);
 
   const a = porId(db.atendimentos, id);
   if (!a) {
@@ -83,6 +92,10 @@ function AtendimentoDetalhe() {
   const lancPago = db.lancamentos.find((l) => l.atendimentoId === a.id && l.status === "pago");
   const coberto = a.planoPetId && a.valorTotal === 0;
   const encerrado = ["finalizado", "cancelado", "faltou"].includes(a.status);
+  const etapas = etapasDoAtendimento(db, a.id);
+  const linha = montarLinhaDoTempo(a.eventos, etapas, pet.nome);
+  const motorista = porId(db.membros, a.motoristaId);
+  const podeTransporte = pode(papel, "agenda") && a.status !== "cancelado" && a.status !== "faltou";
 
   function mudar(para: StatusAtendimento) {
     const r = mudarStatus(a!.id, para);
@@ -149,6 +162,13 @@ function AtendimentoDetalhe() {
         <Linha icone={<Scissors />} rotulo="Profissional" onClick={encerrado || papel === "banhista" ? undefined : () => setProfs(true)}>
           <p className="font-medium">{prof?.nome.split(" ")[0] ?? "—"}</p>
         </Linha>
+        {(a.transporte !== "nenhum" || podeTransporte) && (
+          <Linha icone={<Car />} rotulo="Leva e traz" onClick={podeTransporte ? () => setTransporte(true) : undefined}>
+            <p className="font-medium">{NOME_TRANSPORTE[a.transporte]}</p>
+            {a.enderecoTransporte && <p className="text-[13px] text-muted">{a.enderecoTransporte}</p>}
+            {a.transporte !== "nenhum" && <p className="text-[12.5px] text-subtle">Motorista: {motorista ? motorista.nome.split(" ")[0] : "a definir"}</p>}
+          </Linha>
+        )}
       </div>
 
       {(pet.alergias || pet.cuidados) && (
@@ -243,7 +263,45 @@ function AtendimentoDetalhe() {
         )}
       </div>
 
-      <Historico eventos={a.eventos} />
+      <section className="mx-5 mt-7">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-[17px] font-semibold">Acompanhamento do tutor</h2>
+          <span className="text-[12.5px] text-muted">{etapas.filter((e) => e.fotoUrl).length} fotos</span>
+        </div>
+        <div className="rounded-[20px] border border-line px-4 py-4">
+          <LinhaDoTempo itens={linha} />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
+          {registraEtapasDoBanho(papel) && a.status !== "cancelado" && a.status !== "faltou" && (
+            <Botao variante="contorno" className="h-12" icone={<Camera className="h-[18px] w-[18px]" />} onClick={() => setEtapa(true)}>
+              Etapa e foto
+            </Botao>
+          )}
+          {falaComTutor && a.status !== "cancelado" && (
+            <Botao variante="fantasma" className="h-12" icone={<MessageCircle className="h-[18px] w-[18px]" />} onClick={() => setZap("acompanhamento")}>
+              Enviar link
+            </Botao>
+          )}
+        </div>
+        <div className="mt-2 flex items-center justify-center gap-5">
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(linkAcompanhamento(a));
+                toast("Link do tutor copiado");
+              } catch {
+                toast("Não foi possível copiar", "erro");
+              }
+            }}
+            className="flex items-center gap-1.5 py-2 text-[13px] font-medium text-brand-600"
+          >
+            <Copy className="h-3.5 w-3.5" /> Copiar link do tutor
+          </button>
+          <a href={linkAcompanhamento(a)} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 py-2 text-[13px] font-medium text-brand-600">
+            <ExternalLink className="h-3.5 w-3.5" /> Ver como o tutor
+          </a>
+        </div>
+      </section>
 
       <Folha aberta={menu} onFechar={() => setMenu(false)} titulo="Ações do atendimento">
         {transicoesDoPapel(papel, a.status).length === 0 ? (
@@ -294,6 +352,8 @@ function AtendimentoDetalhe() {
 
       {zap && <WhatsappFolha aberta onFechar={() => setZap(null)} tutorId={tutor.id} atendimentoId={a.id} gatilho={zap} />}
       <PagamentoFolha aberta={pagando} onFechar={() => setPagando(false)} lancamentoId={pendente?.id} />
+      {etapa && <EtapaFolha aberta atendimentoId={a.id} onFechar={() => setEtapa(false)} />}
+      <TransporteFolha aberta={transporte} onFechar={() => setTransporte(false)} atendimentoId={a.id} />
     </div>
   );
 }
@@ -321,27 +381,4 @@ function Linha({ icone, rotulo, children, href, onClick }: { icone: ReactNode; r
       </button>
     );
   return <div className={cls}>{corpo}</div>;
-}
-
-function Historico({ eventos }: { eventos: { de: StatusAtendimento | null; para: StatusAtendimento; porMembroId: string; em: string }[] }) {
-  const db = useDb();
-  return (
-    <details className="mx-5 mt-6 rounded-2xl bg-surface px-4 py-3">
-      <summary className="cursor-pointer text-[14px] font-medium text-muted">Histórico de status</summary>
-      <ol className="mt-3 space-y-2">
-        {eventos.map((e, i) => {
-          const quem = porId(db.membros, e.porMembroId)?.nome.split(" ")[0] ?? "—";
-          const d = new Date(e.em);
-          return (
-            <li key={i} className="flex items-center justify-between text-[13px]">
-              <StatusChip status={e.para} />
-              <span className="text-muted">
-                {quem} · {d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} {d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </details>
-  );
 }

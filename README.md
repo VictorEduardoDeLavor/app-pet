@@ -26,13 +26,17 @@ No celular, abra o endereço no navegador e use **Adicionar à tela inicial**.
 | Início | `/` | Indicadores do dia, planos a vencer, atalhos, atendimentos pendentes, clientes sumidos |
 | Agenda | `/agenda` | Dia e semana, filtro por status, linha do tempo por hora |
 | Novo agendamento | `/agenda/novo` | Tutor e pet (com cadastro rápido), serviços com preço por porte, horários livres por profissional, valor editável |
-| Atendimento | `/atendimentos/[id]` | Alertas do pet, plano e saldo, iniciar, finalizar, cancelar, falta, trocar profissional, cobrar, WhatsApp, histórico de status |
+| Atendimento | `/atendimentos/[id]` | Alertas do pet, plano e saldo, iniciar, finalizar, cancelar, falta, trocar profissional, leva e traz, cobrar, WhatsApp, linha do tempo com fotos, link do tutor |
+| Acompanhamento do tutor | `/acompanhar/[token]` | Página pública (sem senha) que o tutor abre pelo WhatsApp: etapa atual, barra de progresso, fotos de cada etapa, carro no mapa ao vivo durante o leva e traz. Atualiza sozinha e gera prévia com foto no WhatsApp |
+| Leva e traz | `/rotas` | Lista do motorista: buscar, entregar, rota no Google Maps, ligar, avisar o tutor. "Saí para buscar/entregar" liga o GPS do celular; "Peguei/Entreguei" (com foto) desliga |
+| Comissões | `/comissoes` | Quanto cada pessoa tem a receber desde o último pagamento, extrato por atendimento, registrar pagamento (vira despesa no caixa) |
+| Esqueci a senha | `/entrar`, `/nova-senha` | Pede o link por e-mail e cria a senha nova |
 | Financeiro | `/financeiro` | Caixa do dia, entradas e saídas, a receber, registrar pagamento, lançar despesa, fechar caixa, dias anteriores |
 | Clientes | `/clientes`, `/clientes/[id]`, `/clientes/novo` | Busca por tutor, WhatsApp ou pet, filtros, ficha do tutor, histórico |
 | Pet | `/pets/[id]` | Ficha completa, alertas, plano, histórico, editar |
 | Planos | `/planos` | Ativos, a vencer, encerrados, vender plano, baixa manual, aviso de renovação |
 | Mensagens | `/mensagens` | Fila do dia (pet pronto, confirmação, lembrete, feedback, renovação, sumidos) e 6 modelos editáveis |
-| Minha fila | `/fila` | Tela do banhista/tosador: pet na mesa, próximos, alergias e cuidados em destaque, iniciar e finalizar, prontos do dia e comissão estimada |
+| Minha fila | `/fila` | Tela do banhista/tosador: pet na mesa, próximos, alergias e cuidados em destaque, iniciar, registrar etapa com foto (chegou, banho, secagem, tosa, pronto), finalizar com foto do resultado, prontos do dia e comissão estimada |
 | Equipe | `/equipe` | Pessoas e papéis, comissão própria opcional, convite por código de 6 letras para cada pessoa entrar com o próprio login |
 | Mais | `/mais`, `/servicos`, `/produtos` | Serviços e preços por porte (com % de comissão), funcionamento, configurações, conta |
 
@@ -42,13 +46,21 @@ No celular, abra o endereço no navegador e use **Adicionar à tela inicial**.
 | --- | --- | --- |
 | Dono | Tudo | — |
 | Recepção | Início, agenda, clientes, mensagens, financeiro, planos, serviços | Equipe e configurações do pet shop |
-| Banhista / tosador | Minha fila, ficha do pet, atendimento (iniciar e finalizar) | Valores, financeiro, clientes, agenda geral, mensagens |
+| Banhista / tosador | Minha fila, ficha do pet, atendimento (iniciar, etapas com foto, finalizar) | Valores, financeiro, clientes, agenda geral, mensagens |
+| Motorista | Leva e traz (endereço, telefone, etapas de transporte, GPS) | Valores, financeiro, agenda geral, fila do banho |
 
 A tela esconde o que o papel não usa (`src/domain/permissoes.ts`) e o banco recusa o que o papel não pode (RLS). Quando o banhista finaliza, o pet aparece em **Pets prontos para buscar** no Início da recepção, com o botão de avisar o tutor no WhatsApp.
 
 Comissão: % de cada serviço (tela Serviços e preços), ou a % própria da pessoa quando definida na Equipe, sempre sobre o preço de tabela, inclusive itens cobertos por plano. A mesma conta roda no app (estimativa na fila) e no banco (tabela `comissoes`).
 
 No computador (a partir de 1024 px) a barra de baixo vira menu lateral, as folhas viram janelas centralizadas e o conteúdo ganha largura.
+
+## Bibliotecas prontas usadas nas novidades
+
+- **Leaflet + OpenStreetMap**: mapa do carro, aberto e sem chave de API. Com muitos acessos, trocar os "tiles" do OpenStreetMap por um provedor com plano (MapTiler, Stadia) mudando uma linha em `src/components/mapa.tsx`.
+- **Geolocation API do navegador**: GPS do celular do motorista, sem app extra nem custo.
+- **browser-image-compression**: reduz a foto da câmera (3–5 MB) para ~150 KB no próprio celular antes de subir.
+- **Supabase Storage**: bucket público `fotos` com caminhos aleatórios; só a equipe do pet shop grava e lista a própria pasta.
 
 ## Como está organizado
 

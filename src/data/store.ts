@@ -10,11 +10,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Db, FormaPagamento, Membro, MensagemEnvio, Pet, Petshop, Servico, StatusAtendimento } from "@/domain/types";
+import type { AtendimentoEtapa, Db, Etapa, Transporte, FormaPagamento, Membro, MensagemEnvio, Pet, Petshop, Posicao, Servico, StatusAtendimento } from "@/domain/types";
 import { criarSeed } from "./seed";
 import * as R from "@/domain/rules";
 import { hoje } from "@/domain/format";
 import { MODELOS_PADRAO } from "@/domain/messages";
+import { blobParaDataUrl, reduzirFoto, subirFoto, urlPublica } from "@/lib/fotos";
 import { carregar, gerarConvite, remoto, traduzirErro } from "./cloud";
 
 type Resultado<T = void> = { ok: true; valor: T } | { ok: false; erro: string };
@@ -75,6 +76,15 @@ interface Estado {
   /** Demonstração: ver o app com os olhos de outra pessoa da equipe. */
   entrarComo: (membroId: string) => void;
   convidar: (membroId: string) => Promise<Resultado<{ codigo: string; expiraEm: string }>>;
+
+  /** Registra um momento do atendimento (com foto opcional) na linha do tempo do tutor. */
+  registrarEtapa: (input: { atendimentoId: string; etapa: Etapa; nota?: string; foto?: File | null }) => Promise<Resultado<AtendimentoEtapa>>;
+  /** Troca (ou remove, com null) a foto do pet. */
+  salvarFotoPet: (petId: string, foto: File | null) => Promise<Resultado>;
+  /** Posição do carro no leva e traz (chamada pelo rastreio a cada poucos segundos). */
+  enviarPosicao: (pos: Posicao) => void;
+  registrarAcerto: (input: R.AcertoInput) => Resultado<R.ComissaoAcertoResultado>;
+  definirTransporte: (atendimentoId: string, input: { transporte: Transporte; enderecoTransporte?: string; motoristaId?: string }) => Resultado;
 }
 
 const ALFABETO_CONVITE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -89,7 +99,7 @@ export const useApp = create<Estado>()(
   persist(
     (set, get) => {
       /** Enfileira a gravação no banco e recarrega depois. Nada acontece no modo demo. */
-      const gravar = (op: (cliente: SupabaseClient, ps: string) => Promise<unknown>) => {
+      const gravar = (op: (cliente: SupabaseClient, ps: string) => Promise<unknown>, opcoes: { recarregar?: boolean } = {}) => {
         const { modo, petshopId } = get();
         if (modo !== "nuvem" || !sb || !petshopId) return;
         const cliente = sb;
@@ -100,8 +110,24 @@ export const useApp = create<Estado>()(
             const msg = traduzirErro(e).message;
             ouvintesErro.forEach((fn) => fn(msg));
           })
-          .then(() => get().recarregar())
+          .then(() => (opcoes.recarregar === false ? undefined : get().recarregar()))
           .finally(() => set((s) => ({ sincronizando: Math.max(0, s.sincronizando - 1) })));
+      };
+
+      /**
+       * Reduz a foto e, no modo nuvem, sobe para o Storage. Devolve a URL para a tela e o caminho para o banco.
+       * No modo demonstração a foto vira data URL (fica só neste navegador).
+       */
+      const prepararFoto = async (foto: File, caminho: string): Promise<{ url: string; path?: string }> => {
+        const { modo, petshopId } = get();
+        if (modo === "nuvem" && sb && petshopId) {
+          const blob = await reduzirFoto(foto);
+          const path = `${petshopId}/${caminho}`;
+          await subirFoto(sb, path, blob);
+          return { url: urlPublica(sb, path), path };
+        }
+        const blob = await reduzirFoto(foto, { maxLado: 640, maxMB: 0.08 });
+        return { url: await blobParaDataUrl(blob) };
       };
 
       /** Aplica a regra local; se passar, grava no banco com o resultado. */
@@ -311,11 +337,84 @@ export const useApp = create<Estado>()(
             (c, ps) => remoto.envio(c, ps, envio),
           );
         },
+
+        registrarEtapa: async ({ atendimentoId, etapa, nota, foto }) => {
+          // Valida antes de gastar tempo com a foto.
+          const previa = tentar(() => R.registrarEtapa(get().db, { atendimentoId, etapa, nota }, get().db.usuarioAtualId, new Date()));
+          if (!previa.ok) return previa;
+          const id = R.uid();
+          let fotoUrl: string | undefined;
+          let fotoPath: string | undefined;
+          try {
+            if (foto) {
+              const f = await prepararFoto(foto, `etapas/${atendimentoId}/${id}.jpg`);
+              fotoUrl = f.url;
+              fotoPath = f.path;
+            }
+          } catch (e) {
+            return { ok: false, erro: e instanceof Error ? e.message : "Não foi possível enviar a foto." };
+          }
+          return aplicar(
+            (db) => {
+              const r = R.registrarEtapa(db, { id, atendimentoId, etapa, nota, fotoUrl }, db.usuarioAtualId, new Date());
+              return { db: r.db, valor: r.etapa, ctx: r.etapa };
+            },
+            (c, ps, e) => remoto.etapa(c, ps, e, fotoPath),
+          );
+        },
+
+        salvarFotoPet: async (petId, foto) => {
+          const pet = R.porId(get().db.pets, petId);
+          if (!pet) return { ok: false, erro: "Pet não encontrado." };
+          let fotoUrl: string | undefined;
+          let fotoPath: string | null = null;
+          try {
+            if (foto) {
+              // Nome novo a cada troca, para o navegador não mostrar a foto antiga em cache.
+              const f = await prepararFoto(foto, `pets/${petId}-${Date.now().toString(36)}.jpg`);
+              fotoUrl = f.url;
+              fotoPath = f.path ?? null;
+            }
+          } catch (e) {
+            return { ok: false, erro: e instanceof Error ? e.message : "Não foi possível enviar a foto." };
+          }
+          const atualizado: Pet = { ...pet, fotoUrl };
+          return aplicar(
+            (db) => ({ db: R.atualizarPet(db, atualizado), valor: undefined }),
+            (c, ps) => remoto.pet(c, ps, atualizado, false, fotoPath),
+          );
+        },
+
+        enviarPosicao: (pos) => {
+          const r = tentar(() => R.atualizarPosicao(get().db, pos));
+          if (!r.ok) return;
+          set({ db: r.valor });
+          // Sem recarregar o Db a cada posição: é só um ponto a mais no mapa.
+          gravar((c, ps) => remoto.posicao(c, ps, pos), { recarregar: false });
+        },
+
+        definirTransporte: (atendimentoId, input) =>
+          aplicar(
+            (db) => {
+              const novo = R.definirTransporte(db, atendimentoId, input);
+              return { db: novo, valor: undefined, ctx: R.porId(novo.atendimentos, atendimentoId)! };
+            },
+            (c, ps, a) => remoto.transporte(c, ps, a),
+          ),
+
+        registrarAcerto: (input) =>
+          aplicar(
+            (db) => {
+              const r = R.registrarAcerto(db, input, new Date());
+              return { db: r.db, valor: { acerto: r.acerto, despesa: r.despesa }, ctx: r.acerto };
+            },
+            (c, ps, acerto) => remoto.acerto(c, ps, acerto),
+          ),
       };
     },
     {
-      // v2: dados de exemplo com fotos dos pets.
-      name: "app-pet:v2",
+      // v3: dados de exemplo com leva e traz, etapas com foto e acertos de comissão.
+      name: "app-pet:v3",
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       // Só o modo demonstração fica no navegador; o modo nuvem sempre lê do banco.

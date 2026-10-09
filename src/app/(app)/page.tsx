@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { Bell, CalendarDays, CalendarPlus, ChevronRight, ClipboardList, MessageCircle, PawPrint, ShoppingBag, TriangleAlert, Users } from "lucide-react";
+import { Bell, CalendarDays, CalendarPlus, Car, ChevronRight, ClipboardList, MessageCircle, PawPrint, TriangleAlert, Users } from "lucide-react";
 import { useDb } from "@/data/store";
-import { atendimentosDoDia, clientesSumidos, kpisDoDia, planosAVencer, porId, prontosParaAvisar } from "@/domain/rules";
+import { atendimentosDoDia, clientesSumidos, emRota, kpisDoDia, planosAVencer, porId, prontosParaAvisar } from "@/domain/rules";
 import { dataLonga, hoje, horaAtual, horaDoIso, moedaCurta, primeiroNome, saudacao } from "@/domain/format";
 import { CapaFoto, Chip, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
@@ -22,6 +22,7 @@ export default function Inicio() {
   const petProximo = proximo ? porId(db.pets, proximo.petId) : undefined;
   const frase = petProximo ? `Próximo: ${petProximo.nome} às ${proximo!.hora}` : proximos.length ? "Tudo andando por aqui." : "Agenda livre por enquanto.";
   const [avisar, setAvisar] = useState<{ tutorId: string; atendimentoId: string } | null>(null);
+  const naRua = atendimentosDoDia(db, T).filter((a) => emRota(db, a.id));
 
   return (
     <div>
@@ -108,7 +109,7 @@ export default function Inicio() {
         <Atalho href="/agenda/novo" icone={<CalendarPlus />} rotulo="Novo agendamento" />
         <Atalho href="/clientes" icone={<Users />} rotulo="Clientes" />
         <Atalho href="/planos" icone={<ClipboardList />} rotulo="Planos" />
-        <Atalho href="/produtos" icone={<ShoppingBag />} rotulo="Produtos" />
+        <Atalho href="/rotas" icone={<Car />} rotulo={naRua.length ? `Leva e traz · ${naRua.length} na rua` : "Leva e traz"} />
       </div>
 
       <Secao

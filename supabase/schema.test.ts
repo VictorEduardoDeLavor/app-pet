@@ -48,6 +48,18 @@ beforeAll(async () => {
     alter default privileges in schema public grant all on sequences to authenticated, anon;
     alter default privileges in schema public grant execute on functions to authenticated, anon;
   `);
+  // Stub do Supabase Storage (buckets, objects e foldername) para as policies das fotos.
+  await db.exec(`
+    create schema storage;
+    create table storage.buckets (id text primary key, name text not null, public boolean not null default false);
+    create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets, name text not null, owner uuid);
+    alter table storage.objects enable row level security;
+    create function storage.foldername(name text) returns text[] language sql immutable as $$
+      select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1]
+    $$;
+    grant usage on schema storage to authenticated, anon;
+    grant all on storage.objects, storage.buckets to authenticated, anon;
+  `);
   const pasta = path.join(__dirname, "migrations");
   for (const arquivo of readdirSync(pasta).filter((f) => f.endsWith(".sql")).sort()) {
     await db.exec(readFileSync(path.join(pasta, arquivo), "utf8"));
@@ -290,5 +302,122 @@ describe("schema Supabase", () => {
       );
     await ins();
     await expect(ins()).rejects.toThrow(/planos_pet_um_ativo/);
+  });
+
+  // -------------------------------------------------------------------------
+  // 0007: acompanhamento, etapas com foto, leva e traz, acerto de comissões
+  // -------------------------------------------------------------------------
+
+  const anon = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    await db.exec(`set role anon;`);
+    try {
+      return await fn();
+    } finally {
+      await db.exec(`reset role;`);
+    }
+  };
+
+  it("atendimento nasce com token e o tutor vê a linha do tempo sem login", async () => {
+    const id = await agendar(thor, "2026-10-20 14:00-03", 60, [{ servico: banho, nome: "Banho", preco: 80 }]);
+    const { token } = await um<{ token: string }>(`select token from atendimentos where id = $1`, [id]);
+    expect(token).toMatch(/^[0-9a-f]{32}$/);
+
+    await como(U_BRUNO, async () => {
+      await status(id, "em_atendimento");
+      await db.query(`insert into atendimento_etapas (petshop_id, atendimento_id, etapa, foto_path, nota) values ($1, $2, 'banho', $3, 'Espuma até as orelhas')`, [A, id, `${A}/etapas/${id}/x.webp`]);
+    });
+    const e = await um<{ membro_id: string }>(`select membro_id from atendimento_etapas where atendimento_id = $1`, [id]);
+    expect(e.membro_id).toBe(bruno); // quem registrou, preenchido pelo banco
+
+    const visto = await anon(() => um<{ a: Record<string, unknown> }>(`select acompanhamento($1) as a`, [token]));
+    const a = visto.a as { pet: { nome: string }; petshop: { nome: string }; atendimento: { status: string; itens: string[] }; etapas: { etapa: string; nota: string }[]; eventos: { para: string }[]; em_rota: boolean };
+    expect(a.pet.nome).toBe("Thor");
+    expect(a.petshop.nome).toBe("Patinhas");
+    expect(a.atendimento.status).toBe("em_atendimento");
+    expect(a.atendimento.itens).toEqual(["Banho"]);
+    expect(a.etapas.map((x) => x.etapa)).toEqual(["banho"]);
+    expect(a.eventos.map((x) => x.para)).toEqual(["agendado", "em_atendimento"]);
+    expect(a.em_rota).toBe(false);
+
+    expect((await anon(() => um<{ a: unknown }>(`select acompanhamento('nao-existe') as a`))).a).toBeNull();
+    // Sem o token, anon não lê nada.
+    expect(await anon(async () => (await db.query(`select * from atendimento_etapas`)).rows.length)).toBe(0);
+  });
+
+  it("leva e traz: etapas na ordem certa, GPS só na rua e tudo no link do tutor", async () => {
+    const tutor = (await um<{ tutor_id: string }>(`select tutor_id from pets where id = $1`, [luna])).tutor_id;
+    const diego = (await um<{ id: string }>(`insert into membros (petshop_id, nome, papel) values ($1, 'Diego', 'motorista') returning id`, [A])).id;
+    await expect(
+      db.query(`insert into atendimentos (petshop_id, pet_id, tutor_id, profissional_id, inicio, fim, valor_total, transporte) values ($1, $2, $3, $4, '2026-10-21 09:00-03', '2026-10-21 10:00-03', 50, 'busca')`, [A, luna, tutor, bruno]),
+    ).rejects.toThrow(/atendimentos_transporte_endereco/);
+    const id = (
+      await um<{ id: string }>(
+        `insert into atendimentos (petshop_id, pet_id, tutor_id, profissional_id, inicio, fim, valor_total, transporte, endereco_transporte, motorista_id)
+         values ($1, $2, $3, $4, '2026-10-21 09:00-03', '2026-10-21 10:00-03', 50, 'busca_e_entrega', 'Rua das Acácias, 120', $5) returning id`,
+        [A, luna, tutor, bruno, diego],
+      )
+    ).id;
+    await db.query(`insert into atendimento_itens (petshop_id, atendimento_id, servico_id, nome, preco, duracao_min) values ($1, $2, $3, 'Banho', 50, 60)`, [A, id, banho]);
+    const etapa = (e: string) => db.query(`insert into atendimento_etapas (petshop_id, atendimento_id, etapa) values ($1, $2, $3)`, [A, id, e]);
+    const posicao = () => db.query(`insert into rota_posicoes (petshop_id, atendimento_id, lat, lng, precisao) values ($1, $2, -23.6, -46.47, 12)`, [A, id]);
+
+    await expect(posicao()).rejects.toThrow(/não está ativo/);
+    await expect(etapa("pet_buscado")).rejects.toThrow(/fora de ordem/);
+    await etapa("saiu_para_buscar");
+    await posicao();
+    expect((await um<{ r: boolean }>(`select em_rota($1) as r`, [id])).r).toBe(true);
+    await etapa("pet_buscado");
+    expect((await um<{ r: boolean }>(`select em_rota($1) as r`, [id])).r).toBe(false);
+    await expect(etapa("saiu_para_entregar")).rejects.toThrow(/fora de ordem/); // só depois de pronto
+    await status(id, "em_atendimento");
+    await status(id, "finalizado");
+    await etapa("saiu_para_entregar");
+    await posicao();
+    const { token } = await um<{ token: string }>(`select token from atendimentos where id = $1`, [id]);
+    const a = (await anon(() => um<{ a: Record<string, unknown> }>(`select acompanhamento($1) as a`, [token]))).a as {
+      em_rota: boolean; posicao: { lat: number; lng: number }; atendimento: { transporte: string; motorista: string; endereco: string };
+    };
+    expect(a.em_rota).toBe(true);
+    expect(a.posicao.lat).toBeCloseTo(-23.6);
+    expect(a.atendimento).toMatchObject({ transporte: "busca_e_entrega", motorista: "Diego", endereco: "Rua das Acácias, 120" });
+    await etapa("entregue");
+    await expect(etapa("entregue")).rejects.toThrow(/fora de ordem/);
+    expect((await anon(() => um<{ a: { posicao: unknown } }>(`select acompanhamento($1) as a`, [token]))).a.posicao).toBeNull();
+  });
+
+  it("motorista vê a operação, não vê dinheiro", async () => {
+    const U_DIEGO = "00000000-0000-0000-0000-00000000000e";
+    await db.query(`insert into auth.users values ($1, 'diego@patinhas.com')`, [U_DIEGO]);
+    await db.query(`insert into membros (petshop_id, user_id, nome, papel) values ($1, $2, 'Diego Motorista', 'motorista')`, [A, U_DIEGO]);
+    expect(await como(U_DIEGO, async () => (await db.query(`select * from atendimentos`)).rows.length)).toBeGreaterThan(0);
+    expect(await como(U_DIEGO, async () => (await db.query(`select * from lancamentos`)).rows.length)).toBe(0);
+    expect(await como(U_DIEGO, async () => (await db.query(`select * from comissoes`)).rows.length)).toBe(0);
+  });
+
+  it("acerto de comissões: só o dono; marca pagas, lança a despesa e fecha o período", async () => {
+    const pendente = async () => Number((await um<{ v: string }>(`select coalesce(sum(valor), 0) as v from comissoes where membro_id = $1 and status = 'a_pagar'`, [bruno])).v);
+    const antes = await pendente();
+    expect(antes).toBeGreaterThan(0);
+    await expect(como(U_BRUNO, () => db.query(`select registrar_acerto($1, '2026-12-31', 'pix')`, [bruno]))).rejects.toThrow(/Só o dono/);
+    await expect(como(U_OUTRO, () => db.query(`select registrar_acerto($1, '2026-12-31', 'pix')`, [bruno]))).rejects.toThrow(/Só o dono/);
+
+    const ac = await como(U_ANA, () => um<{ valor: string; lancamento_id: string; de: Date; ate: Date }>(`select * from registrar_acerto($1, '2026-12-31', 'pix')`, [bruno]));
+    expect(Number(ac.valor)).toBe(antes);
+    expect(await pendente()).toBe(0);
+    const l = await um<{ tipo: string; categoria: string; status: string; valor: string }>(`select tipo, categoria, status, valor from lancamentos where id = $1`, [ac.lancamento_id]);
+    expect(l).toMatchObject({ tipo: "despesa", categoria: "Comissões", status: "pago" });
+    expect(Number(l.valor)).toBe(antes);
+    await expect(como(U_ANA, () => db.query(`select registrar_acerto($1, '2026-12-31', 'pix')`, [bruno]))).rejects.toThrow(/Não há comissão pendente/);
+    // O banhista vê o próprio acerto; a recepção não.
+    expect(await como(U_BRUNO, async () => (await db.query(`select * from comissao_acertos`)).rows.length)).toBe(1);
+  });
+
+  it("fotos: a equipe grava e lista só a pasta do próprio pet shop; de fora ninguém lista", async () => {
+    await como(U_ANA, () => db.query(`insert into storage.objects (bucket_id, name) values ('fotos', $1)`, [`${A}/pets/abc.jpg`]));
+    await expect(como(U_OUTRO, () => db.query(`insert into storage.objects (bucket_id, name) values ('fotos', $1)`, [`${A}/pets/intruso.jpg`]))).rejects.toThrow(/row-level security/);
+    await expect(anon(() => db.query(`insert into storage.objects (bucket_id, name) values ('fotos', $1)`, [`${A}/pets/anon.jpg`]))).rejects.toThrow(/row-level security/);
+    expect(await como(U_ANA, async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(1);
+    expect(await como(U_OUTRO, async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(0);
+    expect(await anon(async () => (await db.query(`select name from storage.objects where bucket_id = 'fotos'`)).rows.length)).toBe(0);
   });
 });

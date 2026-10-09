@@ -1,9 +1,11 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, PawPrint } from "lucide-react";
+import { CircleAlert, CircleCheck, LocateFixed, PawPrint } from "lucide-react";
 import { aoErroDeSincronia, useApp } from "@/data/store";
+import { useRastreio } from "@/lib/rastreio";
 import { carregar } from "@/data/cloud";
 import { CHAVE_DEMO, supabase, temSupabase } from "@/lib/supabase/client";
 import { cx } from "./ui";
@@ -17,6 +19,8 @@ const SessaoCtx = createContext<Sessao>({ email: null, temSupabase: false, sair:
 export const useSessao = () => useContext(SessaoCtx);
 
 const PUBLICAS = ["/entrar", "/bem-vindo"];
+/** Abrem com ou sem login e nunca redirecionam: o link do tutor e a troca de senha. */
+const ABERTAS = ["/acompanhar", "/nova-senha"];
 
 type Etapa = "carregando" | "pronto" | "publica";
 
@@ -24,6 +28,7 @@ export function Providers({ children }: { children: ReactNode }) {
   const caminho = usePathname();
   const router = useRouter();
   const publica = PUBLICAS.some((p) => caminho.startsWith(p));
+  const aberta = ABERTAS.some((p) => caminho.startsWith(p));
   const [etapa, setEtapa] = useState<Etapa>("carregando");
   const [email, setEmail] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<Aviso[]>([]);
@@ -45,6 +50,11 @@ export function Providers({ children }: { children: ReactNode }) {
     let vivo = true;
     (async () => {
       await Promise.resolve(useApp.persist.rehydrate());
+      if (aberta) {
+        // Link do tutor (dados de exemplo ou banco) e nova senha cuidam de si mesmos.
+        if (vivo) setEtapa("pronto");
+        return;
+      }
       if (!temSupabase) {
         if (vivo) setEtapa("pronto");
         return;
@@ -104,6 +114,7 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
 
   const mostrarConteudo = etapa === "pronto" || (etapa === "publica" && publica);
+  const gpsLigado = useRastreio((s) => s.ativo);
 
   return (
     <ToastCtx.Provider value={mostrar}>
@@ -116,6 +127,15 @@ export function Providers({ children }: { children: ReactNode }) {
           </div>
         )}
       </SessaoCtx.Provider>
+      {gpsLigado && !aberta && !caminho.startsWith("/rotas") && (
+        <Link
+          href="/rotas"
+          className="fixed left-3 top-3 z-50 flex items-center gap-1.5 rounded-full bg-ok-500 px-3 py-1.5 text-[12px] font-semibold text-white shadow-lg lg:left-[268px]"
+        >
+          <LocateFixed className="h-3.5 w-3.5 animate-pulse" />
+          Localização ao vivo
+        </Link>
+      )}
       <div className="pointer-events-none fixed inset-x-0 top-3 z-[60] mx-auto flex max-w-[440px] flex-col gap-2 px-4 lg:left-[256px]">
         {avisos.map((a) => (
           <div

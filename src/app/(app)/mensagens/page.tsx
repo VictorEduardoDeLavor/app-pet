@@ -22,6 +22,7 @@ interface Sugestao {
 }
 
 const GRUPOS: { gatilho: GatilhoMensagem; titulo: string }[] = [
+  { gatilho: "acompanhamento", titulo: "Link de acompanhamento" },
   { gatilho: "pet_pronto", titulo: "Pet pronto" },
   { gatilho: "confirmacao", titulo: "Confirmar horário" },
   { gatilho: "lembrete", titulo: "Lembrete de amanhã" },
@@ -53,7 +54,9 @@ export default function Mensagens() {
       lista.push({ chave: `${gatilho}-${atendimentoId ?? petId}`, gatilho, tutor, pet, atendimentoId, contexto, enviado: enviadoHoje(gatilho, tutorId, atendimentoId) });
     };
     for (const a of atendimentosDoDia(db, T)) {
-      if (a.status === "finalizado") add("pet_pronto", a.tutorId, a.petId, `Finalizado · ${a.hora}`, a.id);
+      // Link para o tutor acompanhar as fotos (e o carro): de quem está no pet shop ou a caminho hoje.
+      if (a.status === "em_atendimento" || a.status === "confirmado") add("acompanhamento", a.tutorId, a.petId, a.status === "em_atendimento" ? "No banho agora" : `Hoje às ${a.hora}`, a.id);
+      if (a.status === "finalizado" && a.transporte !== "entrega" && a.transporte !== "busca_e_entrega") add("pet_pronto", a.tutorId, a.petId, `Finalizado · ${a.hora}`, a.id);
       if (a.status === "agendado") add("confirmacao", a.tutorId, a.petId, `Hoje às ${a.hora}`, a.id);
     }
     for (const a of atendimentosDoDia(db, somaDias(T, 1))) {

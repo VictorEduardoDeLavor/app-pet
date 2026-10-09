@@ -1,7 +1,7 @@
 // Dados fictícios para o protótipo. Tudo é relativo ao dia de hoje,
 // então a agenda sempre abre com movimento.
 
-import type { Atendimento, AtendimentoItem, Db, Lancamento, Pet, PlanoPet, PlanoUso, Porte, Servico, Tutor } from "@/domain/types";
+import type { Atendimento, AtendimentoEtapa, AtendimentoItem, Db, Etapa, Lancamento, Pet, PlanoPet, PlanoUso, Porte, Posicao, Servico, Transporte, Tutor } from "@/domain/types";
 import { hoje as hojeIso, somaDias } from "@/domain/format";
 import { MODELOS_PADRAO } from "@/domain/messages";
 
@@ -87,10 +87,15 @@ export function criarSeed(agora: Date = new Date()): Db {
   const atendimentos: Atendimento[] = [];
   const lancamentos: Lancamento[] = [];
   const planoUsos: PlanoUso[] = [];
+  const etapas: AtendimentoEtapa[] = [];
+  const posicoes: Posicao[] = [];
 
   function atd(o: {
     id: string; petId: string; prof: string; data: string; hora: string; servicos: string[];
     status: Atendimento["status"]; plano?: string; pagoEm?: string; forma?: Lancamento["formaPagamento"];
+    transporte?: Transporte; endereco?: string; motorista?: string;
+    /** Etapas já registradas: [etapa, "HH:MM", foto?, nota?] */
+    etapas?: [Etapa, string, string?, string?][];
   }) {
     const p = pets.find((x) => x.id === o.petId)!;
     const its = itens(o.petId, o.servicos, o.plano ? o.servicos[0] : undefined);
@@ -114,7 +119,15 @@ export function criarSeed(agora: Date = new Date()): Db {
       duracaoMin: its.reduce((s, i) => s + i.duracaoMin, 0), status: o.status, origem: "balcao",
       itens: its, valorTotal, desconto: 0, planoPetId: o.plano, pago: finalizado && (valorTotal === 0 || !!o.pagoEm),
       eventos: evs,
+      token: `demo${o.id.replace(/[^a-z0-9]/gi, "")}`.padEnd(32, "0"),
+      transporte: o.transporte ?? "nenhum",
+      enderecoTransporte: o.transporte ? o.endereco ?? tutores.find((t) => t.id === p.tutorId)?.endereco ?? "Rua das Acácias, 120 · São Mateus" : undefined,
+      motoristaId: o.transporte ? o.motorista ?? "m_diego" : undefined,
     });
+    for (const [etapa, hora, foto, nota] of o.etapas ?? []) {
+      const deTransporte = ["saiu_para_buscar", "pet_buscado", "saiu_para_entregar", "entregue"].includes(etapa);
+      etapas.push({ id: `et_${o.id}_${etapa}`, atendimentoId: o.id, etapa, nota, fotoUrl: foto, porMembroId: deTransporte ? "m_diego" : o.prof, em: iso(o.data, hora) });
+    }
     if (finalizado && o.plano) {
       planoUsos.push({ id: `uso_${o.id}`, planoPetId: o.plano, atendimentoId: o.id, em: iso(o.data, o.hora), estornado: false });
     }
@@ -148,14 +161,24 @@ export function criarSeed(agora: Date = new Date()): Db {
   atd({ id: "a_pingo_1", petId: "p_pingo", prof: "m_camila", data: d(-1), hora: "16:00", servicos: ["s_banho_tosa"], status: "finalizado" });
 
   // Hoje
-  atd({ id: "a_max", petId: "p_max", prof: "m_bruno", data: T, hora: "08:00", servicos: ["s_banho_tosa"], status: "finalizado", pagoEm: iso(T, "09:35"), forma: "pix" });
+  atd({
+    id: "a_max", petId: "p_max", prof: "m_bruno", data: T, hora: "08:00", servicos: ["s_banho_tosa"], status: "finalizado", pagoEm: iso(T, "09:35"), forma: "pix",
+    transporte: "entrega", endereco: "Av. Mateo Bei, 2300 · São Mateus",
+    etapas: [["chegou", "07:55", undefined, "Chegou animado, já pedindo carinho."], ["banho", "08:10", "/fotos/fila-banho.webp"], ["secagem", "08:40"], ["tosa", "09:00"], ["pronto", "09:30", "/fotos/pets/max.webp", "Cheiroso e de laço novo!"], ["saiu_para_entregar", "09:50"]],
+  });
+  // O carro do Max está na rua agora: a tutora vê o mapa se mexendo na demonstração.
+  posicoes.push({ atendimentoId: "a_max", lat: -23.6015, lng: -46.4737, precisao: 14, em: new Date(agora.getTime() - 20_000).toISOString() });
   atd({ id: "a_nina", petId: "p_nina", prof: "m_jessica", data: T, hora: "08:00", servicos: ["s_banho", "s_hidratacao", "s_unhas", "s_ouvidos"], status: "finalizado", pagoEm: iso(T, "09:40"), forma: "dinheiro" });
   atd({ id: "a_luna", petId: "p_luna", prof: "m_camila", data: T, hora: "09:00", servicos: ["s_banho_tosa"], status: "confirmado" });
-  atd({ id: "a_thor", petId: "p_thor", prof: "m_bruno", data: T, hora: "10:00", servicos: ["s_banho"], status: "em_atendimento", plano: "pl_thor" });
-  atd({ id: "a_pipoca", petId: "p_pipoca", prof: "m_jessica", data: T, hora: "10:00", servicos: ["s_banho"], status: "em_atendimento", plano: "pl_pipoca" });
+  atd({
+    id: "a_thor", petId: "p_thor", prof: "m_bruno", data: T, hora: "10:00", servicos: ["s_banho"], status: "em_atendimento", plano: "pl_thor",
+    transporte: "busca_e_entrega", endereco: "Rua das Acácias, 120 · São Mateus",
+    etapas: [["saiu_para_buscar", "09:20"], ["pet_buscado", "09:38", "/fotos/pets/thor.webp", "Entrou no carro abanando o rabo."], ["chegou", "09:55"], ["banho", "10:08", undefined, "Shampoo sem perfume, como pedido."]],
+  });
+  atd({ id: "a_pipoca", petId: "p_pipoca", prof: "m_jessica", data: T, hora: "10:00", servicos: ["s_banho"], status: "em_atendimento", plano: "pl_pipoca", etapas: [["chegou", "09:50"], ["banho", "10:05", "/fotos/pets/pipoca.webp"]] });
   atd({ id: "a_mel", petId: "p_mel", prof: "m_camila", data: T, hora: "11:00", servicos: ["s_banho"], status: "agendado" });
   atd({ id: "a_bidu", petId: "p_bidu", prof: "m_bruno", data: T, hora: "14:00", servicos: ["s_banho"], status: "agendado", plano: "pl_bidu" });
-  atd({ id: "a_fred", petId: "p_fred", prof: "m_jessica", data: T, hora: "15:30", servicos: ["s_banho_tosa"], status: "agendado" });
+  atd({ id: "a_fred", petId: "p_fred", prof: "m_jessica", data: T, hora: "15:30", servicos: ["s_banho_tosa"], status: "agendado", transporte: "busca", endereco: "Rua Dr. Luís Aires, 85 · São Mateus" });
 
   // Próximos dias
   atd({ id: "a_luna_prox", petId: "p_luna", prof: "m_camila", data: d(1), hora: "09:00", servicos: ["s_banho"], status: "agendado" });
@@ -185,6 +208,7 @@ export function criarSeed(agora: Date = new Date()): Db {
       { id: "m_jessica", nome: "Jéssica Lima", papel: "banhista", comissaoPct: 0, ativo: true, temConta: true },
       { id: "m_camila", nome: "Camila Reis", papel: "banhista", comissaoPct: 0, ativo: true },
       { id: "m_rita", nome: "Rita Souza", papel: "recepcao", comissaoPct: 0, ativo: true, temConta: true },
+      { id: "m_diego", nome: "Diego Prado", papel: "motorista", comissaoPct: 0, ativo: true, temConta: true },
     ],
     tutores,
     pets,
@@ -201,5 +225,8 @@ export function criarSeed(agora: Date = new Date()): Db {
     caixas: [],
     mensagemModelos: MODELOS_PADRAO,
     mensagensEnvios: [],
+    etapas,
+    posicoes,
+    acertos: [],
   };
 }

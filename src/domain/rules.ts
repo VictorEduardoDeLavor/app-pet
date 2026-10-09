@@ -4,18 +4,23 @@
 
 import type {
   Atendimento,
+  AtendimentoEtapa,
   AtendimentoItem,
   Caixa,
+  ComissaoAcerto,
   Db,
+  Etapa,
   FormaPagamento,
   Lancamento,
   Membro,
   Pet,
   PlanoPet,
   PlanoUso,
+  Posicao,
   Servico,
   StatusAtendimento,
   StatusPlano,
+  Transporte,
   Tutor,
 } from "./types";
 import { dataDoIso, diferencaDias, diaDaSemana, horaDeMinutos, minutos, somaDias } from "./format";
@@ -30,6 +35,11 @@ export class ErroRegra extends Error {
 /** IDs gerados no cliente (UUID) — os mesmos vão para o banco no modo nuvem. */
 export function uid(): string {
   return crypto.randomUUID();
+}
+
+/** Chave do link de acompanhamento: 32 caracteres aleatórios (mesmo formato do banco). */
+export function tokenAcompanhamento(): string {
+  return crypto.randomUUID().replace(/-/g, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +237,9 @@ export interface NovoAtendimentoInput {
   valorTotal?: number; // se ausente, usa o sugerido
   observacoes?: string;
   origem?: "balcao" | "portal";
+  transporte?: Transporte;
+  enderecoTransporte?: string;
+  motoristaId?: string;
 }
 
 export function criarAtendimento(
@@ -239,6 +252,10 @@ export function criarAtendimento(
   if (!porId(db.membros, input.profissionalId)) throw new ErroRegra("Escolha o profissional.");
   if (!input.data || !input.hora) throw new ErroRegra("Escolha data e horário.");
   if (!petshopAberto(db, input.data)) throw new ErroRegra("O pet shop não abre neste dia.");
+  const transporte = input.transporte ?? "nenhum";
+  const enderecoTransporte = input.enderecoTransporte?.trim() || undefined;
+  if (transporte !== "nenhum" && !enderecoTransporte) throw new ErroRegra("Informe o endereço do leva e traz.");
+  if (input.motoristaId && !porId(db.membros, input.motoristaId)) throw new ErroRegra("Escolha o motorista.");
 
   const { itens, duracaoMin, valorSugerido, planoPetId } = montarItens(db, pet.id, input.servicoIds, input.data);
   const ini = minutos(input.hora);
@@ -269,6 +286,10 @@ export function criarAtendimento(
     pago: false,
     observacoes: input.observacoes,
     eventos: [{ de: null, para: "agendado", porMembroId: db.usuarioAtualId, em: agora.toISOString() }],
+    token: tokenAcompanhamento(),
+    transporte,
+    enderecoTransporte: transporte === "nenhum" ? undefined : enderecoTransporte,
+    motoristaId: transporte === "nenhum" ? undefined : input.motoristaId,
   };
   return { db: { ...db, atendimentos: [...db.atendimentos, atendimento] }, atendimento };
 }
@@ -529,7 +550,12 @@ export function criarMembro(
 
 /** Quem pode receber atendimentos: banhistas e o dono (autônomo também atende). */
 export function profissionais(db: Db): Membro[] {
-  return db.membros.filter((m) => m.ativo && m.papel !== "recepcao");
+  return db.membros.filter((m) => m.ativo && (m.papel === "banhista" || m.papel === "dono"));
+}
+
+/** Quem pode dirigir no leva e traz: motoristas e o dono (pet shop pequeno, o dono busca). */
+export function motoristas(db: Db): Membro[] {
+  return db.membros.filter((m) => m.ativo && (m.papel === "motorista" || m.papel === "dono"));
 }
 
 export function atualizarPet(db: Db, pet: Pet): Db {
@@ -626,11 +652,252 @@ export function inicioDoAtendimento(atd: Atendimento): string | undefined {
 
 /**
  * Pets finalizados no dia esperando o tutor: ninguém mandou o "pet pronto" e o serviço ainda não foi pago
- * (pagamento registrado = tutor já passou no balcão).
+ * (pagamento registrado = tutor já passou no balcão). Quem volta de carro (entrega) não entra: o motorista leva.
  */
 export function prontosParaAvisar(db: Db, data: string): Atendimento[] {
   const modelosPronto = new Set(db.mensagemModelos.filter((m) => m.gatilho === "pet_pronto").map((m) => m.id));
   const avisados = new Set(db.mensagensEnvios.filter((e) => e.atendimentoId && modelosPronto.has(e.modeloId)).map((e) => e.atendimentoId));
   const pagos = new Set(db.lancamentos.filter((l) => l.atendimentoId && l.status === "pago").map((l) => l.atendimentoId));
-  return atendimentosDoDia(db, data).filter((a) => a.status === "finalizado" && !avisados.has(a.id) && !pagos.has(a.id));
+  return atendimentosDoDia(db, data).filter(
+    (a) => a.status === "finalizado" && !avisados.has(a.id) && !pagos.has(a.id) && a.transporte !== "entrega" && a.transporte !== "busca_e_entrega",
+  );
 }
+
+// ---------------------------------------------------------------------------
+// Etapas com foto (linha do tempo que o tutor acompanha)
+// ---------------------------------------------------------------------------
+
+export const NOME_ETAPA: Record<Etapa, string> = {
+  saiu_para_buscar: "Motorista a caminho",
+  pet_buscado: "Pet a bordo",
+  chegou: "Chegou no pet shop",
+  banho: "Na banheira",
+  secagem: "Secagem",
+  tosa: "Tosa",
+  pronto: "Pronto!",
+  saiu_para_entregar: "Voltando para casa",
+  entregue: "Entregue em casa",
+};
+
+/** Como o tutor lê cada etapa, com o nome do pet. */
+export function fraseEtapa(etapa: Etapa, pet: string): string {
+  switch (etapa) {
+    case "saiu_para_buscar": return `O motorista saiu para buscar ${pet}`;
+    case "pet_buscado": return `${pet} já está no carro`;
+    case "chegou": return `${pet} chegou no pet shop`;
+    case "banho": return `${pet} está no banho`;
+    case "secagem": return `${pet} está na secagem`;
+    case "tosa": return `${pet} está na tosa`;
+    case "pronto": return `${pet} está pronto!`;
+    case "saiu_para_entregar": return `${pet} está voltando para casa`;
+    case "entregue": return `${pet} chegou em casa`;
+  }
+}
+
+export const ETAPAS_TRANSPORTE: Etapa[] = ["saiu_para_buscar", "pet_buscado", "saiu_para_entregar", "entregue"];
+export const ETAPAS_BANHO: Etapa[] = ["chegou", "banho", "secagem", "tosa", "pronto"];
+
+/** Enquanto o motorista está na rua com (ou para buscar) o pet, a posição do carro é compartilhada. */
+export const ETAPAS_EM_ROTA: Etapa[] = ["saiu_para_buscar", "saiu_para_entregar"];
+
+export function etapasDoAtendimento(db: Db, atendimentoId: string): AtendimentoEtapa[] {
+  return db.etapas.filter((e) => e.atendimentoId === atendimentoId).sort((a, b) => (a.em < b.em ? -1 : 1));
+}
+
+export function ultimaEtapa(db: Db, atendimentoId: string): AtendimentoEtapa | undefined {
+  return etapasDoAtendimento(db, atendimentoId).at(-1);
+}
+
+export function emRota(db: Db, atendimentoId: string): boolean {
+  const u = ultimaEtapa(db, atendimentoId);
+  return !!u && ETAPAS_EM_ROTA.includes(u.etapa);
+}
+
+export function posicaoDoAtendimento(db: Db, atendimentoId: string): Posicao | undefined {
+  return db.posicoes.find((p) => p.atendimentoId === atendimentoId);
+}
+
+/** Quais etapas de transporte cabem agora, dado o que já foi registrado e o tipo de leva e traz. */
+export function proximaEtapaTransporte(db: Db, atd: Atendimento): Etapa | undefined {
+  if (atd.transporte === "nenhum" || ["cancelado", "faltou"].includes(atd.status)) return undefined;
+  const feitas = new Set(etapasDoAtendimento(db, atd.id).map((e) => e.etapa));
+  const busca = atd.transporte === "busca" || atd.transporte === "busca_e_entrega";
+  const entrega = atd.transporte === "entrega" || atd.transporte === "busca_e_entrega";
+  if (busca && !feitas.has("pet_buscado")) return feitas.has("saiu_para_buscar") ? "pet_buscado" : "saiu_para_buscar";
+  if (entrega && !feitas.has("entregue")) {
+    if (feitas.has("saiu_para_entregar")) return "entregue";
+    // Só sai para entregar depois que o pet está pronto.
+    return atd.status === "finalizado" ? "saiu_para_entregar" : undefined;
+  }
+  return undefined;
+}
+
+export function registrarEtapa(
+  db: Db,
+  input: { atendimentoId: string; etapa: Etapa; nota?: string; fotoUrl?: string; id?: string },
+  membroId: string,
+  agora: Date,
+): { db: Db; etapa: AtendimentoEtapa } {
+  const atd = porId(db.atendimentos, input.atendimentoId);
+  if (!atd) throw new ErroRegra("Atendimento não encontrado.");
+  if (atd.status === "cancelado" || atd.status === "faltou") throw new ErroRegra("Este atendimento está encerrado.");
+  if (ETAPAS_TRANSPORTE.includes(input.etapa)) {
+    if (atd.transporte === "nenhum") throw new ErroRegra("Este atendimento não tem leva e traz.");
+    const esperada = proximaEtapaTransporte(db, atd);
+    if (esperada !== input.etapa) {
+      throw new ErroRegra(esperada ? `Agora o próximo passo é “${NOME_ETAPA[esperada]}”.` : "O transporte deste atendimento já terminou.");
+    }
+  }
+  const etapa: AtendimentoEtapa = {
+    id: input.id ?? uid(),
+    atendimentoId: atd.id,
+    etapa: input.etapa,
+    nota: input.nota?.trim() || undefined,
+    fotoUrl: input.fotoUrl,
+    porMembroId: membroId,
+    em: agora.toISOString(),
+  };
+  // Ao chegar no destino ou entregar, a posição do carro deixa de ser compartilhada.
+  const posicoes = ETAPAS_EM_ROTA.includes(input.etapa) ? db.posicoes : db.posicoes.filter((p) => p.atendimentoId !== atd.id);
+  return { db: { ...db, etapas: [...db.etapas, etapa], posicoes }, etapa };
+}
+
+export function atualizarPosicao(db: Db, pos: Posicao): Db {
+  if (!emRota(db, pos.atendimentoId)) throw new ErroRegra("O compartilhamento de localização não está ativo.");
+  return { ...db, posicoes: [...db.posicoes.filter((p) => p.atendimentoId !== pos.atendimentoId), pos] };
+}
+
+// ---------------------------------------------------------------------------
+// Leva e traz: a lista do motorista
+// ---------------------------------------------------------------------------
+
+export interface Rotas {
+  buscar: Atendimento[];
+  entregar: Atendimento[];
+  concluidos: Atendimento[];
+}
+
+/**
+ * O dia do leva e traz. O motorista vê as rotas dele; dono e recepção veem todas
+ * (passe membroId = undefined).
+ */
+export function rotasDoDia(db: Db, data: string, membroId?: string): Rotas {
+  const doDia = atendimentosDoDia(db, data).filter(
+    (a) => a.transporte !== "nenhum" && !["cancelado", "faltou"].includes(a.status) && (!membroId || !a.motoristaId || a.motoristaId === membroId),
+  );
+  const r: Rotas = { buscar: [], entregar: [], concluidos: [] };
+  for (const a of doDia) {
+    const prox = proximaEtapaTransporte(db, a);
+    const feitas = new Set(etapasDoAtendimento(db, a.id).map((e) => e.etapa));
+    const temBusca = a.transporte !== "entrega";
+    const temEntrega = a.transporte !== "busca";
+    if (temBusca && !feitas.has("pet_buscado")) r.buscar.push(a);
+    else if (temEntrega && !feitas.has("entregue")) r.entregar.push(a);
+    else if (!prox) r.concluidos.push(a);
+  }
+  return r;
+}
+
+// ---------------------------------------------------------------------------
+// Comissões: extrato e acerto
+// ---------------------------------------------------------------------------
+
+export function ultimoAcerto(db: Db, membroId: string): ComissaoAcerto | undefined {
+  return db.acertos.filter((a) => a.membroId === membroId).sort((a, b) => (a.ate < b.ate ? -1 : 1)).at(-1);
+}
+
+/** Atendimentos finalizados da pessoa ainda não pagos (depois do último acerto), até a data limite. */
+export function comissoesPendentes(db: Db, membroId: string, ate: string): Atendimento[] {
+  const ultimo = ultimoAcerto(db, membroId);
+  return db.atendimentos
+    .filter((a) => a.profissionalId === membroId && a.status === "finalizado" && a.data <= ate && (!ultimo || a.data > ultimo.ate))
+    .sort((a, b) => (a.data + a.hora < b.data + b.hora ? -1 : 1));
+}
+
+export function totalComissao(db: Db, atendimentos: Atendimento[]): number {
+  return Math.round(atendimentos.reduce((s, a) => s + comissaoDoAtendimento(db, a) * 100, 0)) / 100;
+}
+
+/** Atendimentos finalizados da pessoa dentro de um período (para o extrato). */
+export function comissoesDoPeriodo(db: Db, membroId: string, de: string, ate: string): Atendimento[] {
+  return db.atendimentos
+    .filter((a) => a.profissionalId === membroId && a.status === "finalizado" && a.data >= de && a.data <= ate)
+    .sort((a, b) => (a.data + a.hora < b.data + b.hora ? -1 : 1));
+}
+
+export interface AcertoInput {
+  membroId: string;
+  ate: string; // YYYY-MM-DD
+  formaPagamento: FormaPagamento;
+}
+
+export interface ComissaoAcertoResultado {
+  acerto: ComissaoAcerto;
+  despesa: Lancamento;
+}
+
+/** Paga as comissões pendentes até a data: registra o acerto e a despesa no caixa. */
+export function registrarAcerto(db: Db, input: AcertoInput, agora: Date): { db: Db; acerto: ComissaoAcerto; despesa: Lancamento } {
+  const membro = porId(db.membros, input.membroId);
+  if (!membro) throw new ErroRegra("Pessoa não encontrada.");
+  const pendentes = comissoesPendentes(db, membro.id, input.ate);
+  const valor = totalComissao(db, pendentes);
+  if (pendentes.length === 0 || valor <= 0) throw new ErroRegra("Não há comissão pendente até esta data.");
+  const ultimo = ultimoAcerto(db, membro.id);
+  const de = ultimo ? somaDias(ultimo.ate, 1) : pendentes[0].data;
+  const despesa: Lancamento = {
+    id: uid(),
+    tipo: "despesa",
+    categoria: "Comissões",
+    descricao: `Comissão · ${membro.nome}`,
+    valor,
+    formaPagamento: input.formaPagamento,
+    status: "pago",
+    competencia: dataDoIso(agora.toISOString()),
+    criadoEm: agora.toISOString(),
+    pagoEm: agora.toISOString(),
+  };
+  const acerto: ComissaoAcerto = {
+    id: uid(),
+    membroId: membro.id,
+    de,
+    ate: input.ate,
+    valor,
+    formaPagamento: input.formaPagamento,
+    lancamentoId: despesa.id,
+    criadoEm: agora.toISOString(),
+  };
+  return { db: { ...db, acertos: [...db.acertos, acerto], lancamentos: [...db.lancamentos, despesa] }, acerto, despesa };
+}
+
+/** Liga, muda ou tira o leva e traz de um atendimento (enquanto o motorista ainda não saiu). */
+export function definirTransporte(
+  db: Db,
+  atendimentoId: string,
+  input: { transporte: Transporte; enderecoTransporte?: string; motoristaId?: string },
+): Db {
+  const atd = porId(db.atendimentos, atendimentoId);
+  if (!atd) throw new ErroRegra("Atendimento não encontrado.");
+  if (["cancelado", "faltou"].includes(atd.status)) throw new ErroRegra("Este atendimento está encerrado.");
+  const jaSaiu = etapasDoAtendimento(db, atd.id).some((e) => ETAPAS_TRANSPORTE.includes(e.etapa));
+  if (jaSaiu) throw new ErroRegra("O motorista já começou este leva e traz.");
+  const endereco = input.enderecoTransporte?.trim() || undefined;
+  if (input.transporte !== "nenhum" && !endereco) throw new ErroRegra("Informe o endereço do leva e traz.");
+  if (input.motoristaId && !porId(db.membros, input.motoristaId)) throw new ErroRegra("Escolha o motorista.");
+  const nenhum = input.transporte === "nenhum";
+  return {
+    ...db,
+    atendimentos: db.atendimentos.map((a) =>
+      a.id === atd.id
+        ? { ...a, transporte: input.transporte, enderecoTransporte: nenhum ? undefined : endereco, motoristaId: nenhum ? undefined : input.motoristaId }
+        : a,
+    ),
+  };
+}
+
+export const NOME_TRANSPORTE: Record<Transporte, string> = {
+  nenhum: "Tutor traz e busca",
+  busca: "Buscar em casa",
+  entrega: "Levar para casa",
+  busca_e_entrega: "Buscar e levar",
+};

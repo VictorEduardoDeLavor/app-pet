@@ -9,6 +9,7 @@ import { horariosLivres, montarItens, petsDoTutor, planoAtivoDoPet, porId, profi
 import { NOME_PORTE, dataLonga, duracao, hoje, horaAtual, moeda, normalizarWhatsapp, telefone } from "@/domain/format";
 import { Aviso, Botao, Campo, PetAvatar, TituloVoltar, cx } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { CamposTransporte, type ValorTransporte } from "@/components/transporte";
 
 export default function NovoAgendamentoPagina() {
   return (
@@ -41,6 +42,7 @@ function NovoAgendamento() {
   const [hora, setHora] = useState<string>("");
   const [valorEditado, setValorEditado] = useState<string | null>(null);
   const [obs, setObs] = useState("");
+  const [leva, setLeva] = useState<ValorTransporte>({ transporte: "nenhum", enderecoTransporte: "" });
 
   const [busca, setBusca] = useState("");
   const [novoTutor, setNovoTutor] = useState(false);
@@ -92,7 +94,18 @@ function NovoAgendamento() {
   function salvar() {
     if (!pet) return toast("Escolha o pet.", "erro");
     if (!horaValida) return toast("Escolha um horário livre.", "erro");
-    const r = criar({ petId: pet.id, servicoIds, profissionalId: profId, data, hora: horaValida, valorTotal: valor, observacoes: obs.trim() || undefined });
+    const r = criar({
+      petId: pet.id,
+      servicoIds,
+      profissionalId: profId,
+      data,
+      hora: horaValida,
+      valorTotal: valor,
+      observacoes: obs.trim() || undefined,
+      transporte: leva.transporte,
+      enderecoTransporte: leva.enderecoTransporte || tutor?.endereco,
+      motoristaId: leva.motoristaId,
+    });
     if (!r.ok) return toast(r.erro, "erro");
     toast(`${pet.nome} agendado para ${dataLonga(data).toLowerCase()} às ${horaValida}`);
     router.replace(`/atendimentos/${r.valor}?novo=1`);
@@ -350,9 +363,19 @@ function NovoAgendamento() {
           </Bloco>
         )}
 
-        {/* 5. Valor */}
+        {/* 5. Leva e traz */}
         {montagem && (
-          <Bloco n={5} titulo="Valor e observações">
+          <Bloco n={5} titulo="Leva e traz">
+            <CamposTransporte
+              valor={{ ...leva, enderecoTransporte: leva.enderecoTransporte || tutor?.endereco || "" }}
+              onChange={setLeva}
+            />
+          </Bloco>
+        )}
+
+        {/* 6. Valor */}
+        {montagem && (
+          <Bloco n={6} titulo="Valor e observações">
             <Campo rotulo="Valor cobrado (R$)" dica={valorEditado !== null && valor !== montagem.valorSugerido ? `Sugerido: ${moeda(montagem.valorSugerido)}` : "Calculado pelo porte. Pode editar."}>
               <input
                 className="input text-[17px] font-semibold"

@@ -23,6 +23,8 @@ export default function Entrar() {
   const [erro, setErro] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState(false);
   const [convite, setConvite] = useState<string | null>(null);
+  const [esqueci, setEsqueci] = useState(false);
+  const [linkEnviado, setLinkEnviado] = useState(false);
 
   // Link de convite: guarda o código para usar depois do cadastro e já abre em "Criar conta".
   useEffect(() => {
@@ -62,6 +64,22 @@ export default function Entrar() {
     }
   }
 
+  async function pedirLink(e: React.FormEvent) {
+    e.preventDefault();
+    setErro(null);
+    if (!temSupabase) return;
+    setEnviando(true);
+    try {
+      const { error } = await supabase().auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/nova-senha` });
+      if (error) throw error;
+      setLinkEnviado(true);
+    } catch (err) {
+      setErro(traduzir(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   function demonstracao() {
     localStorage.setItem(CHAVE_DEMO, "1");
     window.location.href = "/";
@@ -77,7 +95,40 @@ export default function Entrar() {
             <p className="mt-1 text-[14.5px] text-muted">Agenda, clientes, planos e caixa do seu banho e tosa.</p>
           </div>
 
-          {confirmar ? (
+          {esqueci ? (
+            <div className="mt-8">
+              {linkEnviado ? (
+                <Aviso
+                  tom="info"
+                  icone={<MailCheck className="h-6 w-6" />}
+                  titulo="Confira seu e-mail"
+                  texto={`Se houver uma conta com ${email}, enviamos um link para criar uma senha nova. Abra o link neste mesmo aparelho.`}
+                />
+              ) : (
+                <form onSubmit={pedirLink} className="space-y-4">
+                  <p className="text-[14.5px] text-muted">Digite o e-mail da sua conta. Enviamos um link para você criar uma senha nova.</p>
+                  <Campo rotulo="E-mail">
+                    <input className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                  </Campo>
+                  {erro && <p className="rounded-2xl bg-bad-50 px-4 py-3 text-[14px] text-bad-700">{erro}</p>}
+                  <Botao type="submit" disabled={enviando || !temSupabase}>
+                    {enviando ? "Enviando…" : "Enviar link"}
+                  </Botao>
+                </form>
+              )}
+              <Botao
+                variante="contorno"
+                className="mt-4"
+                onClick={() => {
+                  setEsqueci(false);
+                  setLinkEnviado(false);
+                  setErro(null);
+                }}
+              >
+                Voltar para entrar
+              </Botao>
+            </div>
+          ) : confirmar ? (
             <div className="mt-8">
               <Aviso
                 tom="info"
@@ -141,6 +192,18 @@ export default function Entrar() {
                 <Botao type="submit" disabled={enviando || !temSupabase}>
                   {enviando ? "Aguarde…" : modo === "entrar" ? "Entrar" : "Criar conta"}
                 </Botao>
+                {modo === "entrar" && temSupabase && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEsqueci(true);
+                      setErro(null);
+                    }}
+                    className="w-full py-1 text-center text-[14px] font-medium text-brand-600"
+                  >
+                    Esqueci minha senha
+                  </button>
+                )}
               </form>
             </>
           )}

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, ClipboardList, Clock, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
+import { Car, Check, ChevronRight, ClipboardList, Clock, HandCoins, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
 import { useApp, useDb, useEu } from "@/data/store";
-import { resumoCaixa, planosAVencer, resumoProfissional } from "@/domain/rules";
+import { comissoesPendentes, resumoCaixa, planosAVencer, profissionais, resumoProfissional, rotasDoDia, totalComissao } from "@/domain/rules";
 import { NOME_PAPEL, inicioDoPapel, pode } from "@/domain/permissoes";
 import { hoje, iniciais, moedaCurta } from "@/domain/format";
 import { Botao, Chip, Folha, Titulo, cx } from "@/components/ui";
@@ -30,10 +30,15 @@ export default function Mais() {
   const ps = db.petshop;
   const minhaFila = eu ? resumoProfissional(db, eu.id, T) : undefined;
   const mostrarFila = !!eu && pode(papel, "fila") && (papel === "banhista" || (minhaFila?.total ?? 0) > 0);
+  const operacional = papel === "banhista" || papel === "motorista";
+  const rotas = rotasDoDia(db, T, papel === "motorista" ? eu?.id : undefined);
+  const nRotas = rotas.buscar.length + rotas.entregar.length;
+  const aPagar = pode(papel, "comissoes") ? profissionais(db).reduce((s, m) => s + totalComissao(db, comissoesPendentes(db, m.id, T)), 0) : 0;
+  const temItens = mostrarFila || !operacional || pode(papel, "rotas");
 
   return (
     <div>
-      <Titulo>{papel === "banhista" ? "Conta" : "Mais"}</Titulo>
+      <Titulo>{operacional ? "Conta" : "Mais"}</Titulo>
 
       {eu && (
         <div className="card mx-5 mb-4 overflow-hidden shadow-[var(--shadow-card)]">
@@ -56,12 +61,16 @@ export default function Mais() {
         </div>
       )}
 
-      {(mostrarFila || papel !== "banhista") && (
+      {temItens && (
         <ul className="mx-5 divide-y divide-line rounded-[20px] border border-line">
           {mostrarFila && (
             <Item href="/fila" icone={<ListChecks />} titulo="Minha fila" detalhe={`${minhaFila!.concluidos} de ${minhaFila!.total} prontos hoje`} />
           )}
+          {pode(papel, "rotas") && (
+            <Item href="/rotas" icone={<Car />} titulo="Leva e traz" detalhe={nRotas ? `${nRotas} ${nRotas === 1 ? "rota pendente" : "rotas pendentes"} hoje` : "Nada pendente hoje"} />
+          )}
           {pode(papel, "financeiro") && <Item href="/financeiro" icone={<Wallet />} titulo="Financeiro" detalhe={`Caixa de hoje ${moedaCurta(caixa.saldo)}`} />}
+          {pode(papel, "comissoes") && <Item href="/comissoes" icone={<HandCoins />} titulo="Comissões" detalhe={`${moedaCurta(aPagar)} a pagar`} />}
           {pode(papel, "planos") && <Item href="/planos" icone={<ClipboardList />} titulo="Planos e pacotes" detalhe={`${planosAVencer(db, T).length} a vencer`} />}
           {pode(papel, "servicos") && (
             <Item href="/servicos" icone={<Scissors />} titulo="Serviços e preços" detalhe={`${db.servicos.filter((s) => s.ativo).length} serviços`} />

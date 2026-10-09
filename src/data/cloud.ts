@@ -6,7 +6,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   Atendimento,
+  AtendimentoEtapa,
   Caixa,
+  ComissaoAcerto,
   Db,
   FormaPagamento,
   Lancamento,
@@ -19,11 +21,13 @@ import type {
   PlanoPet,
   PlanoUso,
   Porte,
+  Posicao,
   Servico,
   Tutor,
 } from "@/domain/types";
 import { ErroRegra } from "@/domain/rules";
 import { MODELOS_PADRAO } from "@/domain/messages";
+import { urlPublica } from "@/lib/fotos";
 import { SERVICOS } from "./seed";
 
 type Sb = SupabaseClient;
@@ -34,6 +38,12 @@ let fuso = FUSO_PADRAO;
 
 const u = <T,>(v: T | null | undefined): T | undefined => (v === null ? undefined : v);
 const n = (v: unknown) => Number(v ?? 0);
+
+/** URL pública de uma foto guardada no Storage (ou undefined quando não há foto). */
+export function fotoUrl(sb: Sb, path: unknown): string | undefined {
+  if (!path) return undefined;
+  return urlPublica(sb, String(path));
+}
 
 // ---------------------------------------------------------------------------
 // Datas no fuso do pet shop
@@ -118,6 +128,9 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
     msgModelos,
     envios,
     convites,
+    etapas,
+    posicoes,
+    acertos,
   ] = (await Promise.all([
     ok(sb.from("petshops").select("*").eq("id", ps)),
     t("membros"),
@@ -136,6 +149,10 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
     t("mensagem_modelos"),
     t("mensagens_envios"),
     t("convites"), // RLS: só o dono recebe linhas
+    t("atendimento_etapas"),
+    // Só a posição mais recente das últimas 24 h interessa (o resto é histórico do GPS).
+    ok(sb.from("rota_posicoes").select("*").eq("petshop_id", ps).gte("em", new Date(Date.now() - 864e5).toISOString()).order("em", { ascending: false }).limit(500)),
+    t("comissao_acertos"), // RLS: dono vê todos; cada pessoa vê os seus
   ])) as Linha[][];
 
   fuso = (petshop.fuso as string) || FUSO_PADRAO;
@@ -191,6 +208,7 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         alergias: u(x.alergias as string),
         cuidados: u(x.cuidados as string),
         observacoes: u(x.observacoes as string),
+        fotoUrl: fotoUrl(sb, x.foto_path),
         ultimaVisita: u(x.ultima_visita as string),
       }),
     ),
@@ -244,6 +262,10 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
             porMembroId: (e.membro_id as string) ?? "",
             em: e.em as string,
           })),
+        token: a.token as string,
+        transporte: (a.transporte as Atendimento["transporte"]) ?? "nenhum",
+        enderecoTransporte: u(a.endereco_transporte as string),
+        motoristaId: u(a.motorista_id as string),
       };
     }),
     planosModelo: modelos.map(
@@ -320,6 +342,41 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         atendimentoId: u(e.atendimento_id as string),
         canal: e.canal as MensagemEnvio["canal"],
         enviadoEm: e.enviado_em as string,
+      }),
+    ),
+    etapas: etapas.map(
+      (e): AtendimentoEtapa => ({
+        id: e.id as string,
+        atendimentoId: e.atendimento_id as string,
+        etapa: e.etapa as AtendimentoEtapa["etapa"],
+        nota: u(e.nota as string),
+        fotoUrl: fotoUrl(sb, e.foto_path),
+        porMembroId: (e.membro_id as string) ?? "",
+        em: e.em as string,
+      }),
+    ),
+    // Vieram ordenadas da mais nova para a mais antiga: a primeira de cada atendimento é a atual.
+    posicoes: posicoes
+      .filter((p, i, lista) => lista.findIndex((x) => x.atendimento_id === p.atendimento_id) === i)
+      .map(
+        (p): Posicao => ({
+          atendimentoId: p.atendimento_id as string,
+          lat: n(p.lat),
+          lng: n(p.lng),
+          precisao: p.precisao === null ? undefined : n(p.precisao),
+          em: p.em as string,
+        }),
+      ),
+    acertos: acertos.map(
+      (a): ComissaoAcerto => ({
+        id: a.id as string,
+        membroId: a.membro_id as string,
+        de: a.de as string,
+        ate: a.ate as string,
+        valor: n(a.valor),
+        formaPagamento: a.forma_pagamento as FormaPagamento,
+        lancamentoId: u(a.lancamento_id as string),
+        criadoEm: a.criado_em as string,
       }),
     ),
   };
@@ -412,6 +469,10 @@ export const remoto = {
           desconto: a.desconto,
           plano_pet_id: a.planoPetId ?? null,
           observacoes: a.observacoes ?? null,
+          token: a.token,
+          transporte: a.transporte,
+          endereco_transporte: a.enderecoTransporte ?? null,
+          motorista_id: a.motoristaId ?? null,
         },
         p_itens: a.itens.map((i) => ({
           servico_id: i.servicoId,
@@ -504,8 +565,8 @@ export const remoto = {
       }),
     ),
 
-  pet: (sb: Sb, ps: string, p: Pet, novo: boolean) => {
-    const linha = {
+  pet: (sb: Sb, ps: string, p: Pet, novo: boolean, fotoPath?: string | null) => {
+    const linha: Linha = {
       id: p.id,
       petshop_id: ps,
       tutor_id: p.tutorId,
@@ -521,8 +582,38 @@ export const remoto = {
       cuidados: p.cuidados ?? null,
       observacoes: p.observacoes ?? null,
     };
+    // A foto só muda quando uma nova foi enviada (fotoPath) ou removida (null).
+    if (fotoPath !== undefined) linha.foto_path = fotoPath;
     return novo ? ok(sb.from("pets").insert(linha)) : ok(sb.from("pets").update(linha).eq("id", p.id));
   },
+
+  etapa: (sb: Sb, ps: string, e: AtendimentoEtapa, fotoPath?: string) =>
+    ok(
+      sb.from("atendimento_etapas").insert({
+        id: e.id,
+        petshop_id: ps,
+        atendimento_id: e.atendimentoId,
+        etapa: e.etapa,
+        nota: e.nota ?? null,
+        foto_path: fotoPath ?? null,
+        em: e.em,
+      }),
+    ),
+
+  transporte: (sb: Sb, _ps: string, a: Pick<Atendimento, "id" | "transporte" | "enderecoTransporte" | "motoristaId">) =>
+    ok(
+      sb
+        .from("atendimentos")
+        .update({ transporte: a.transporte, endereco_transporte: a.enderecoTransporte ?? null, motorista_id: a.motoristaId ?? null })
+        .eq("id", a.id)
+        .select("id"),
+    ),
+
+  posicao: (sb: Sb, ps: string, p: Posicao) =>
+    ok(sb.from("rota_posicoes").insert({ petshop_id: ps, atendimento_id: p.atendimentoId, lat: p.lat, lng: p.lng, precisao: p.precisao ?? null, em: p.em })),
+
+  acerto: (sb: Sb, _ps: string, a: ComissaoAcerto) =>
+    ok(sb.rpc("registrar_acerto", { p_membro: a.membroId, p_ate: a.ate, p_forma: a.formaPagamento, p_id: a.id, p_lancamento_id: a.lancamentoId ?? null })),
 
   modelo: (sb: Sb, _ps: string, id: string, texto: string) => ok(sb.from("mensagem_modelos").update({ texto }).eq("id", id)),
 

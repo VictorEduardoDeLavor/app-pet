@@ -26,9 +26,21 @@ import {
   comissaoDoAtendimento,
   prontosParaAvisar,
   inicioDoAtendimento,
+  registrarEtapa,
+  proximaEtapaTransporte,
+  emRota,
+  atualizarPosicao,
+  posicaoDoAtendimento,
+  rotasDoDia,
+  comissoesPendentes,
+  totalComissao,
+  registrarAcerto,
+  ultimoAcerto,
+  motoristas,
+  etapasDoAtendimento,
 } from "./rules";
 import { inicioDoPapel, rotaPermitida, transicoesDoPapel } from "./permissoes";
-import { linkWhatsapp, renderMensagem, variaveisDoAtendimento } from "./messages";
+import { linkAcompanhamento, linkWhatsapp, renderMensagem, variaveisDoAtendimento } from "./messages";
 import { hoje, somaDias, telefone } from "./format";
 
 // Terça-feira, 6 de outubro de 2026, 12:00
@@ -263,11 +275,11 @@ describe("fila do banhista", () => {
   it("pet finalizado aparece para a recepção avisar até mandar o 'pet pronto' ou receber", () => {
     const db = novoDb();
     expect(prontosParaAvisar(db, T)).toEqual([]); // Max e Nina já pagaram
-    const fim = mudarStatus(db, "a_thor", "finalizado", "m_bruno", AGORA).db;
-    expect(prontosParaAvisar(fim, T).map((a) => a.id)).toEqual(["a_thor"]);
+    const fim = mudarStatus(mudarStatus(db, "a_pipoca", "finalizado", "m_jessica", AGORA).db, "a_thor", "finalizado", "m_bruno", AGORA).db;
+    expect(prontosParaAvisar(fim, T).map((a) => a.id)).toEqual(["a_pipoca"]); // Thor volta de carro: o motorista leva
     const avisado = {
       ...fim,
-      mensagensEnvios: [{ id: "e1", modeloId: "msg_pet_pronto", tutorId: "t_carlos", atendimentoId: "a_thor", canal: "manual" as const, enviadoEm: AGORA.toISOString() }],
+      mensagensEnvios: [{ id: "e1", modeloId: "msg_pet_pronto", tutorId: "t_juliana", atendimentoId: "a_pipoca", canal: "manual" as const, enviadoEm: AGORA.toISOString() }],
     };
     expect(prontosParaAvisar(avisado, T)).toEqual([]);
   });
@@ -291,5 +303,120 @@ describe("permissões por papel", () => {
     expect(transicoesDoPapel("banhista", "agendado")).toEqual(["em_atendimento"]);
     expect(transicoesDoPapel("banhista", "em_atendimento")).toEqual(["finalizado"]);
     expect(transicoesDoPapel("dono", "agendado")).toContain("cancelado");
+  });
+});
+
+describe("etapas com foto e acompanhamento do tutor", () => {
+  it("registra banho e pronto com foto; a linha do tempo fica em ordem", () => {
+    const db = novoDb();
+    const r1 = registrarEtapa(db, { atendimentoId: "a_pipoca", etapa: "secagem", nota: "Secador baixo" }, "m_jessica", AGORA);
+    const r2 = registrarEtapa(r1.db, { atendimentoId: "a_pipoca", etapa: "pronto", fotoUrl: "data:image/webp;base64,xyz" }, "m_jessica", new Date(AGORA.getTime() + 60_000));
+    expect(etapasDoAtendimento(r2.db, "a_pipoca").map((e) => e.etapa)).toEqual(["chegou", "banho", "secagem", "pronto"]);
+    expect(r2.etapa.fotoUrl).toMatch(/^data:/);
+    expect(r1.etapa.nota).toBe("Secador baixo");
+    expect(() => registrarEtapa(db, { atendimentoId: "a_luna_1", etapa: "banho" }, "m_camila", AGORA)).not.toThrow();
+    const cancelado = mudarStatus(db, "a_mel", "cancelado", "m_ana", AGORA).db;
+    expect(() => registrarEtapa(cancelado, { atendimentoId: "a_mel", etapa: "chegou" }, "m_ana", AGORA)).toThrow(/encerrado/);
+  });
+
+  it("link de acompanhamento usa o token do atendimento", () => {
+    const db = novoDb();
+    const atd = db.atendimentos.find((a) => a.id === "a_thor")!;
+    expect(atd.token).toHaveLength(32);
+    expect(linkAcompanhamento(atd, "https://app-pet-one.vercel.app")).toBe(`https://app-pet-one.vercel.app/acompanhar/${atd.token}`);
+    const modelo = db.mensagemModelos.find((m) => m.gatilho === "acompanhamento")!;
+    const texto = renderMensagem(modelo.texto, { ...variaveisDoAtendimento(db, atd, T), link: "https://x/acompanhar/abc" });
+    expect(texto).toBe("Olá, Carlos! Thor está com a gente na Patinhas Pet Shop. Acompanhe cada etapa do banho, com fotos, por este link: https://x/acompanhar/abc");
+  });
+
+  it("agendamento com leva e traz exige endereço e nasce com token", () => {
+    const db = novoDb();
+    const base = { petId: "p_luna", servicoIds: ["s_banho"], profissionalId: "m_camila", data: somaDias(T, 1), hora: "14:00" };
+    expect(() => criarAtendimento(db, { ...base, transporte: "busca" }, AGORA)).toThrow(/endereço/);
+    const { atendimento } = criarAtendimento(db, { ...base, transporte: "busca_e_entrega", enderecoTransporte: "Rua A, 1", motoristaId: "m_diego" }, AGORA);
+    expect(atendimento).toMatchObject({ transporte: "busca_e_entrega", enderecoTransporte: "Rua A, 1", motoristaId: "m_diego" });
+    expect(atendimento.token).toMatch(/^[0-9a-f]{32}$/);
+    const semTransporte = criarAtendimento(db, { ...base, hora: "16:00", enderecoTransporte: "ignorado" }, AGORA).atendimento;
+    expect(semTransporte.transporte).toBe("nenhum");
+    expect(semTransporte.enderecoTransporte).toBeUndefined();
+  });
+});
+
+describe("leva e traz com GPS", () => {
+  it("etapas de transporte seguem a ordem e o GPS só vale na rua", () => {
+    const db = novoDb();
+    const fred = db.atendimentos.find((a) => a.id === "a_fred")!; // busca, nada registrado
+    expect(proximaEtapaTransporte(db, fred)).toBe("saiu_para_buscar");
+    expect(() => registrarEtapa(db, { atendimentoId: "a_fred", etapa: "pet_buscado" }, "m_diego", AGORA)).toThrow(/Motorista a caminho/);
+    expect(() => atualizarPosicao(db, { atendimentoId: "a_fred", lat: -23.6, lng: -46.47, em: AGORA.toISOString() })).toThrow(/não está ativo/);
+
+    const saiu = registrarEtapa(db, { atendimentoId: "a_fred", etapa: "saiu_para_buscar" }, "m_diego", AGORA).db;
+    expect(emRota(saiu, "a_fred")).toBe(true);
+    const comPos = atualizarPosicao(saiu, { atendimentoId: "a_fred", lat: -23.6, lng: -46.47, precisao: 10, em: AGORA.toISOString() });
+    expect(posicaoDoAtendimento(comPos, "a_fred")?.lat).toBe(-23.6);
+
+    const buscado = registrarEtapa(comPos, { atendimentoId: "a_fred", etapa: "pet_buscado" }, "m_diego", AGORA).db;
+    expect(emRota(buscado, "a_fred")).toBe(false);
+    expect(posicaoDoAtendimento(buscado, "a_fred")).toBeUndefined(); // chegou: para de compartilhar
+    expect(proximaEtapaTransporte(buscado, buscado.atendimentos.find((a) => a.id === "a_fred")!)).toBeUndefined(); // só busca
+    expect(() => registrarEtapa(db, { atendimentoId: "a_luna", etapa: "saiu_para_buscar" }, "m_diego", AGORA)).toThrow(/não tem leva e traz/);
+  });
+
+  it("entrega só depois de pronto; Max está na rua agora na demonstração", () => {
+    const db = novoDb();
+    const thor = db.atendimentos.find((a) => a.id === "a_thor")!; // em atendimento, busca e entrega, pet já buscado
+    expect(proximaEtapaTransporte(db, thor)).toBeUndefined();
+    const pronto = mudarStatus(db, "a_thor", "finalizado", "m_bruno", AGORA).db;
+    expect(proximaEtapaTransporte(pronto, pronto.atendimentos.find((a) => a.id === "a_thor")!)).toBe("saiu_para_entregar");
+
+    expect(emRota(db, "a_max")).toBe(true);
+    expect(posicaoDoAtendimento(db, "a_max")).toBeDefined();
+    const entregue = registrarEtapa(db, { atendimentoId: "a_max", etapa: "entregue" }, "m_diego", AGORA).db;
+    expect(emRota(entregue, "a_max")).toBe(false);
+  });
+
+  it("rotas do dia: Diego vê o que buscar, entregar e o que acabou", () => {
+    const db = novoDb();
+    const r = rotasDoDia(db, T, "m_diego");
+    expect(r.buscar.map((a) => a.id)).toEqual(["a_fred"]);
+    expect(r.entregar.map((a) => a.id)).toEqual(["a_max", "a_thor"]);
+    expect(r.concluidos).toEqual([]);
+    const entregue = registrarEtapa(db, { atendimentoId: "a_max", etapa: "entregue" }, "m_diego", AGORA).db;
+    expect(rotasDoDia(entregue, T).concluidos.map((a) => a.id)).toEqual(["a_max"]);
+    expect(motoristas(db).map((m) => m.id)).toEqual(["m_ana", "m_diego"]);
+    expect(profissionais(db).map((m) => m.id)).not.toContain("m_diego");
+  });
+
+  it("motorista só vê as rotas; dono e recepção também", () => {
+    expect(inicioDoPapel("motorista")).toBe("/rotas");
+    expect(rotaPermitida("motorista", "/rotas")).toBe(true);
+    expect(rotaPermitida("motorista", "/agenda")).toBe(false);
+    expect(rotaPermitida("motorista", "/fila")).toBe(false);
+    expect(rotaPermitida("recepcao", "/rotas")).toBe(true);
+    expect(rotaPermitida("banhista", "/rotas")).toBe(false);
+    expect(transicoesDoPapel("motorista", "agendado")).toEqual([]);
+    expect(rotaPermitida("recepcao", "/comissoes")).toBe(false);
+    expect(rotaPermitida("dono", "/comissoes")).toBe(true);
+  });
+});
+
+describe("extrato e acerto de comissões", () => {
+  it("pendente = finalizados sem acerto; pagar fecha o período e lança despesa", () => {
+    const db = novoDb();
+    const pend = comissoesPendentes(db, "m_bruno", T);
+    expect(pend.map((a) => a.id)).toEqual(["a_thor_1", "a_thor_2", "a_max"]);
+    expect(totalComissao(db, pend)).toBe(32 + 32 + 48);
+
+    const r = registrarAcerto(db, { membroId: "m_bruno", ate: somaDias(T, -1), formaPagamento: "pix" }, AGORA);
+    expect(r.acerto.valor).toBe(64);
+    expect(r.acerto.de).toBe(somaDias(T, -17));
+    expect(r.despesa).toMatchObject({ tipo: "despesa", categoria: "Comissões", descricao: "Comissão · Bruno Rocha", valor: 64, status: "pago" });
+    expect(ultimoAcerto(r.db, "m_bruno")?.id).toBe(r.acerto.id);
+    expect(comissoesPendentes(r.db, "m_bruno", T).map((a) => a.id)).toEqual(["a_max"]);
+    expect(resumoCaixa(r.db, T).saidas).toBe(120 + 64);
+
+    const r2 = registrarAcerto(r.db, { membroId: "m_bruno", ate: T, formaPagamento: "dinheiro" }, AGORA);
+    expect(r2.acerto).toMatchObject({ de: T, ate: T, valor: 48 });
+    expect(() => registrarAcerto(r2.db, { membroId: "m_bruno", ate: T, formaPagamento: "pix" }, AGORA)).toThrow(/Não há comissão pendente/);
   });
 });

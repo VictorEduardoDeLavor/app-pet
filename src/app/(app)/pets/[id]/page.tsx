@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { CalendarPlus, PawPrint, Pencil, TriangleAlert, User } from "lucide-react";
-import { useDb, usePapel } from "@/data/store";
+import { CalendarPlus, Camera, LoaderCircle, PawPrint, Pencil, TriangleAlert, User } from "lucide-react";
+import { useApp, useDb, usePapel } from "@/data/store";
+import { useToast } from "@/components/providers";
 import { pode } from "@/domain/permissoes";
 import { planoAtivoDoPet, porId, saldoPlano, usosDoPlano } from "@/domain/rules";
 import { NOME_PORTE, dataCurta, diferencaDias, hoje, moeda } from "@/domain/format";
@@ -17,6 +18,9 @@ export default function PetDetalhe() {
   const T = hoje();
   const papel = usePapel();
   const [editando, setEditando] = useState(false);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const salvarFoto = useApp((s) => s.salvarFotoPet);
+  const toast = useToast();
   const pet = porId(db.pets, id);
 
   if (!pet) {
@@ -64,6 +68,27 @@ export default function PetDetalhe() {
       <div className="-mt-14 flex flex-col items-center px-5 pb-4 text-center">
         <span className="relative rounded-full bg-white p-1 shadow-[var(--shadow-hero)]">
           <PetAvatar pet={pet} tamanho={100} />
+          <label
+            aria-label={pet.fotoUrl ? "Trocar foto" : "Adicionar foto"}
+            className="tap absolute -bottom-0.5 -right-0.5 grid h-9 w-9 cursor-pointer place-items-center rounded-full border-[3px] border-white bg-brand-600 text-white shadow-md"
+          >
+            {enviandoFoto ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              disabled={enviandoFoto}
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                setEnviandoFoto(true);
+                const r = await salvarFoto(pet.id, f);
+                setEnviandoFoto(false);
+                toast(r.ok ? `Foto de ${pet.nome} atualizada` : r.erro, r.ok ? "ok" : "erro");
+              }}
+            />
+          </label>
         </span>
         <h2 className="mt-3 text-[24px] font-bold tracking-tight">{pet.nome}</h2>
         <p className="text-[14px] text-muted">

@@ -76,8 +76,8 @@ export default function Equipe() {
         })}
       </ul>
       <p className="mt-4 px-5 text-[13px] leading-snug text-muted">
-        Cada pessoa entra com o próprio login e vê só o que usa: banhistas e tosadores veem a própria fila e a ficha dos pets; a recepção cuida da agenda, dos
-        clientes e do caixa, sem mexer na equipe nem nas configurações.
+        Cada pessoa entra com o próprio login e vê só o que usa: banhistas e tosadores veem a própria fila e a ficha dos pets; o motorista vê as rotas do leva e
+        traz e compartilha a localização com o tutor; a recepção cuida da agenda, dos clientes e do caixa, sem mexer na equipe nem nas configurações.
         {modo === "demo" && " Na demonstração, troque de pessoa em Mais › Ver o app como."}
       </p>
       <NovoMembro
@@ -118,15 +118,15 @@ function NovoMembro({ aberta, onFechar, onCriado }: { aberta: boolean; onFechar:
         </Campo>
         <div>
           <span className="label">Função</span>
-          <div className="grid grid-cols-2 gap-2">
-            {(["banhista", "recepcao"] as const).map((p) => (
+          <div className="grid grid-cols-3 gap-2">
+            {(["banhista", "recepcao", "motorista"] as const).map((p) => (
               <button
                 key={p}
                 type="button"
                 onClick={() => setPapel(p)}
-                className={cx("tap rounded-xl border py-2.5 text-[14px] font-medium", papel === p ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}
+                className={cx("tap rounded-xl border px-1 py-2.5 text-[13.5px] font-medium", papel === p ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}
               >
-                {NOME_PAPEL[p]}
+                {p === "banhista" ? "Banhista" : NOME_PAPEL[p]}
               </button>
             ))}
           </div>

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, ChevronRight, CircleCheck, ClipboardList, Clock, MessageSquareText, PawPrint, Play, TriangleAlert, UserX } from "lucide-react";
+import { Camera, Car, Check, ChevronRight, CircleCheck, ClipboardList, Clock, MessageSquareText, PawPrint, Play, TriangleAlert, UserX } from "lucide-react";
 import { useApp, useDb, useEu } from "@/data/store";
 import type { Atendimento } from "@/domain/types";
-import { comissaoDoAtendimento, filaDoProfissional, inicioDoAtendimento, porId, resumoProfissional } from "@/domain/rules";
+import { NOME_ETAPA, NOME_TRANSPORTE, comissaoDoAtendimento, etapasDoAtendimento, filaDoProfissional, inicioDoAtendimento, porId, resumoProfissional } from "@/domain/rules";
 import { NOME_PORTE, dataLonga, diaCurto, duracao, hoje, horaDeMinutos, horaDoIso, minutos, moeda, moedaCurta, parseData, primeiroNome, saudacao, somaDias } from "@/domain/format";
 import { Botao, CapaFoto, Chip, Filtros, Folha, NumeroVidro, PetAvatar, Progresso, StatusChip, Vazio, cx } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { EtapaFolha, FotoBotao } from "@/components/acompanhamento";
 
 /** Relógio que anda sozinho, para o "há 25 min" não congelar. */
 function useAgora(intervaloMs = 30_000) {
@@ -26,7 +27,9 @@ export default function FilaPagina() {
   const T = hoje();
   const [dia, setDia] = useState(T);
   const [finalizando, setFinalizando] = useState<Atendimento | null>(null);
+  const [etapaDe, setEtapaDe] = useState<Atendimento | null>(null);
   const mudarStatus = useApp((s) => s.mudarStatus);
+  const registrarEtapa = useApp((s) => s.registrarEtapa);
   const toast = useToast();
 
   if (!eu) return null;
@@ -42,11 +45,17 @@ export default function FilaPagina() {
     toast(`${porId(db.pets, a.petId)?.nome} na mesa. Bom trabalho!`);
   }
 
-  function finalizar(a: Atendimento) {
+  async function finalizar(a: Atendimento, foto: File | null, nota: string) {
+    // A foto do resultado vai para a linha do tempo do tutor como "Pronto!".
+    if (foto || nota.trim()) {
+      const e = await registrarEtapa({ atendimentoId: a.id, etapa: "pronto", foto, nota });
+      if (!e.ok) return toast(e.erro, "erro");
+    }
     const r = mudarStatus(a.id, "finalizado");
     setFinalizando(null);
     if (!r.ok) return toast(r.erro, "erro");
-    toast(`${porId(db.pets, a.petId)?.nome} pronto! A recepção já pode avisar o tutor.`);
+    const leva = a.transporte === "entrega" || a.transporte === "busca_e_entrega";
+    toast(`${porId(db.pets, a.petId)?.nome} pronto! ${leva ? "O motorista já pode levar para casa." : "A recepção já pode avisar o tutor."}`);
   }
 
   const vazio = resumo.total === 0 && fila.ausentes.length === 0;
@@ -94,7 +103,21 @@ export default function FilaPagina() {
           {fila.agora.length > 0 && (
             <Bloco titulo="Agora na mesa">
               {fila.agora.map((a) => (
-                <CartaoFila key={a.id} a={a} destaque acao={<Botao icone={<Check className="h-5 w-5" />} onClick={() => setFinalizando(a)}>Finalizar</Botao>} />
+                <CartaoFila
+                  key={a.id}
+                  a={a}
+                  destaque
+                  acao={
+                    <div className="grid grid-cols-[1fr_1.3fr] gap-2.5">
+                      <Botao variante="contorno" icone={<Camera className="h-5 w-5" />} onClick={() => setEtapaDe(a)}>
+                        Etapa
+                      </Botao>
+                      <Botao icone={<Check className="h-5 w-5" />} onClick={() => setFinalizando(a)}>
+                        Finalizar
+                      </Botao>
+                    </div>
+                  }
+                />
               ))}
             </Bloco>
           )}
@@ -139,8 +162,9 @@ export default function FilaPagina() {
       )}
 
       <Folha aberta={!!finalizando} onFechar={() => setFinalizando(null)} titulo="Finalizar atendimento?">
-        {finalizando && <ConfirmarFim a={finalizando} onConfirmar={() => finalizar(finalizando)} />}
+        {finalizando && <ConfirmarFim a={finalizando} onConfirmar={(foto, nota) => finalizar(finalizando, foto, nota)} />}
       </Folha>
+      {etapaDe && <EtapaFolha aberta atendimentoId={etapaDe.id} onFechar={() => setEtapaDe(null)} />}
     </div>
   );
 }
@@ -159,6 +183,7 @@ function CartaoFila({ a, destaque = false, acao }: { a: Atendimento; destaque?: 
   const agora = useAgora();
   const pet = porId(db.pets, a.petId)!;
   const tutor = porId(db.tutores, a.tutorId);
+  const etapas = etapasDoAtendimento(db, a.id);
   const inicio = inicioDoAtendimento(a);
   const decorrido = inicio ? Math.max(0, Math.round((agora.getTime() - new Date(inicio).getTime()) / 60000)) : 0;
   const previsto = inicio ? horaDoIso(new Date(new Date(inicio).getTime() + a.duracaoMin * 60000).toISOString()) : undefined;
@@ -196,7 +221,28 @@ function CartaoFila({ a, destaque = false, acao }: { a: Atendimento; destaque?: 
             </Chip>
           ))}
           {a.planoPetId && <Chip tom="info" className="py-1.5 text-[13px]">Plano</Chip>}
+          {a.transporte !== "nenhum" && (
+            <Chip tom="neutral" className="py-1.5 text-[13px]">
+              <Car className="mr-1 h-3.5 w-3.5" />
+              {NOME_TRANSPORTE[a.transporte]}
+            </Chip>
+          )}
         </div>
+        {etapas.length > 0 && (
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto">
+            {etapas.map((e) =>
+              e.fotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={e.id} src={e.fotoUrl} alt={NOME_ETAPA[e.etapa]} title={NOME_ETAPA[e.etapa]} className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+              ) : (
+                <span key={e.id} className="shrink-0 rounded-full bg-surface px-2.5 py-1 text-[12px] font-medium text-muted">
+                  {NOME_ETAPA[e.etapa]}
+                </span>
+              ),
+            )}
+            <span className="shrink-0 text-[12px] text-subtle">o tutor acompanha</span>
+          </div>
+        )}
 
         {(pet.alergias || pet.cuidados || pet.observacoes || a.observacoes) && (
           <ul className="mt-3 space-y-2">
@@ -272,9 +318,13 @@ function LinhaPronto({ a, comissao }: { a: Atendimento; comissao?: number }) {
   );
 }
 
-function ConfirmarFim({ a, onConfirmar }: { a: Atendimento; onConfirmar: () => void }) {
+function ConfirmarFim({ a, onConfirmar }: { a: Atendimento; onConfirmar: (foto: File | null, nota: string) => Promise<void> }) {
   const db = useDb();
   const pet = porId(db.pets, a.petId)!;
+  const [foto, setFoto] = useState<File | null>(null);
+  const [nota, setNota] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const leva = a.transporte === "entrega" || a.transporte === "busca_e_entrega";
   return (
     <div>
       <div className="flex items-center gap-3 rounded-2xl bg-surface px-4 py-3">
@@ -284,12 +334,23 @@ function ConfirmarFim({ a, onConfirmar }: { a: Atendimento; onConfirmar: () => v
           <p className="truncate text-[13px] text-muted">{a.itens.map((i) => i.nome).join(" + ")}</p>
         </div>
       </div>
-      <p className="mt-4 text-[14.5px] text-muted">
-        O pet sai da sua fila e a recepção vê que ele está pronto para avisar o tutor.
+      <FotoBotao className="mt-4" foto={foto} onFoto={setFoto} rotulo="Foto do resultado" />
+      <input className="input mt-3" value={nota} onChange={(e) => setNota(e.target.value)} placeholder={`Recado para o tutor (opcional)`} maxLength={140} />
+      <p className="mt-4 text-[14px] text-muted">
+        {leva ? "O pet sai da sua fila e aparece para o motorista levar para casa." : "O pet sai da sua fila e a recepção vê que ele está pronto para avisar o tutor."}
         {a.planoPetId && " Um banho do plano será descontado."}
       </p>
-      <Botao className="mt-5" icone={<Check className="h-5 w-5" />} onClick={onConfirmar}>
-        Sim, {pet.nome} está pronto
+      <Botao
+        className="mt-5"
+        icone={<Check className="h-5 w-5" />}
+        disabled={enviando}
+        onClick={async () => {
+          setEnviando(true);
+          await onConfirmar(foto, nota);
+          setEnviando(false);
+        }}
+      >
+        {enviando ? (foto ? "Enviando a foto…" : "Salvando…") : `Sim, ${pet.nome} está pronto`}
       </Botao>
     </div>
   );

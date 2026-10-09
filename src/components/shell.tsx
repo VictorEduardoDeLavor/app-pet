@@ -5,7 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import {
   Calendar,
+  Car,
   ClipboardList,
+  HandCoins,
   House,
   ListChecks,
   LoaderCircle,
@@ -33,12 +35,14 @@ type ItemNav = { href: string; rotulo: string; Icone: LucideIcon; area: Area | n
 
 const NAV_INICIO: ItemNav = { href: "/", rotulo: "Início", Icone: House, area: "inicio", prefixos: [] };
 const NAV_FILA: ItemNav = { href: "/fila", rotulo: "Minha fila", Icone: ListChecks, area: "fila", prefixos: ["/fila"] };
+const NAV_ROTAS: ItemNav = { href: "/rotas", rotulo: "Leva e traz", Icone: Car, area: "rotas", prefixos: ["/rotas"] };
 const NAV_AGENDA: ItemNav = { href: "/agenda", rotulo: "Agenda", Icone: Calendar, area: "agenda", prefixos: ["/agenda", "/atendimentos"] };
 const NAV_CLIENTES: ItemNav = { href: "/clientes", rotulo: "Clientes", Icone: Users, area: "clientes", prefixos: ["/clientes", "/pets"] };
 const NAV_MENSAGENS: ItemNav = { href: "/mensagens", rotulo: "Mensagens", Icone: MessageCircle, area: "mensagens", prefixos: ["/mensagens"] };
 
 const GESTAO: ItemNav[] = [
   { href: "/financeiro", rotulo: "Financeiro", Icone: Wallet, area: "financeiro", prefixos: ["/financeiro"] },
+  { href: "/comissoes", rotulo: "Comissões", Icone: HandCoins, area: "comissoes", prefixos: ["/comissoes"] },
   { href: "/planos", rotulo: "Planos e pacotes", Icone: ClipboardList, area: "planos", prefixos: ["/planos"] },
   { href: "/servicos", rotulo: "Serviços e preços", Icone: Scissors, area: "servicos", prefixos: ["/servicos"] },
   { href: "/equipe", rotulo: "Equipe", Icone: UserCog, area: "equipe", prefixos: ["/equipe"] },
@@ -60,14 +64,16 @@ function temFilaPropria(db: Db, eu: Membro | undefined) {
 }
 
 function navMovel(papel: Papel): ItemNav[] {
+  const operacional = papel === "banhista" || papel === "motorista";
   const mais: ItemNav = {
     href: "/mais",
-    rotulo: papel === "banhista" ? "Conta" : "Mais",
+    rotulo: operacional ? "Conta" : "Mais",
     Icone: Menu,
     area: null,
-    prefixos: ["/mais", ...(papel === "banhista" ? [] : GESTAO.flatMap((g) => g.prefixos))],
+    prefixos: ["/mais", ...(operacional ? [] : [...GESTAO.flatMap((g) => g.prefixos), "/rotas"])],
   };
   if (papel === "banhista") return [{ ...NAV_FILA, prefixos: ["/fila", "/atendimentos", "/pets"] }, mais];
+  if (papel === "motorista") return [NAV_ROTAS, mais];
   return [NAV_INICIO, NAV_AGENDA, NAV_CLIENTES, NAV_MENSAGENS, mais];
 }
 
@@ -141,13 +147,13 @@ function BarraLateral({ papel }: { papel: Papel }) {
   const modo = useApp((s) => s.modo);
   const { sair } = useSessao();
 
-  const principais = [NAV_INICIO, ...(temFilaPropria(db, eu) ? [NAV_FILA] : []), NAV_AGENDA, NAV_CLIENTES, NAV_MENSAGENS].filter(
+  const principais = [NAV_INICIO, ...(temFilaPropria(db, eu) ? [NAV_FILA] : []), NAV_ROTAS, NAV_AGENDA, NAV_CLIENTES, NAV_MENSAGENS].filter(
     (i) => i.area === null || pode(papel, i.area),
   );
   const gestao = GESTAO.filter((i) => i.area === null || pode(papel, i.area));
   const conta: ItemNav = {
     href: "/mais",
-    rotulo: papel === "banhista" ? "Minha conta" : "Configurações",
+    rotulo: papel === "banhista" || papel === "motorista" ? "Minha conta" : "Configurações",
     Icone: Settings,
     area: null,
     prefixos: ["/mais"],
@@ -230,7 +236,7 @@ function SemAcesso({ destino }: { destino: string }) {
         icone={<Lock className="h-6 w-6" />}
         titulo="Esta área é da gestão"
         texto="Seu acesso mostra só o que você usa no dia a dia. Se precisar desta tela, fale com o dono do pet shop."
-        acao={<BotaoLink href={destino}>{destino === "/fila" ? "Ir para minha fila" : "Ir para o início"}</BotaoLink>}
+        acao={<BotaoLink href={destino}>{destino === "/fila" ? "Ir para minha fila" : destino === "/rotas" ? "Ir para o leva e traz" : "Ir para o início"}</BotaoLink>}
       />
     </div>
   );
