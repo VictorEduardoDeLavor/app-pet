@@ -21,7 +21,7 @@ export default function ComissoesPagina() {
   // Quem atende ou já atendeu (inclui quem saiu da equipe mas ainda tem comissão).
   const pessoas = db.membros.filter(
     (m) => (m.ativo && m.papel === "banhista") || db.atendimentos.some((a) => a.profissionalId === m.id && a.status === "finalizado") || comissoesPendentes(db, m.id, T).length > 0,
-  );
+  ).filter((m) => !(m.semComissao && totalComissao(db, comissoesPendentes(db, m.id, T)) === 0)); // "sem comissão" (ex.: o dono) só aparece se tiver saldo antigo
   const totalGeral = pessoas.reduce((s, m) => s + totalComissao(db, comissoesPendentes(db, m.id, T)), 0);
 
   return (

@@ -46,6 +46,7 @@ export default function ImportarClientes() {
   const [mapa, setMapa] = useState<Mapa | null>(null);
   const [lendo, setLendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [consentimento, setConsentimento] = useState(true);
 
   const previa = useMemo(() => (arquivo && mapa ? montarPrevia(db, arquivo.linhas, mapa) : null), [db, arquivo, mapa]);
   const cabecalho = (arquivo?.linhas[0] ?? []).map((c) => String(c ?? ""));
@@ -71,7 +72,7 @@ export default function ImportarClientes() {
 
   function confirmar() {
     if (!previa) return;
-    const r = importar(previa);
+    const r = importar(previa, consentimento);
     if (!r.ok) return toast(r.erro, "erro");
     toast(`${r.valor.tutores} ${r.valor.tutores === 1 ? "cliente" : "clientes"} e ${r.valor.pets} ${r.valor.pets === 1 ? "pet importado" : "pets importados"}.`);
     router.push("/clientes");
@@ -179,7 +180,14 @@ export default function ImportarClientes() {
             )}
           </Secao>
 
-          <div className="mx-5 mt-6">
+          <label className="mx-5 mt-6 flex items-start gap-3 rounded-2xl bg-surface px-4 py-3 text-[14px]">
+            <input type="checkbox" checked={consentimento} onChange={(e) => setConsentimento(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />
+            <span>
+              Estes clientes já aceitaram receber avisos pelo WhatsApp
+              <span className="block text-[12.5px] text-muted">Desmarque se não tiver esse aceite: eles ficam sem sugestão de mensagem até você marcar na ficha (LGPD).</span>
+            </span>
+          </label>
+          <div className="mx-5 mt-4">
             <Botao onClick={confirmar} disabled={total === 0}>
               {total === 0 ? "Nada novo para importar" : `Importar ${previa.novosTutores} clientes e ${previa.novosPets} pets`}
             </Botao>

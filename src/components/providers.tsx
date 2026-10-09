@@ -21,7 +21,7 @@ export const useSessao = () => useContext(SessaoCtx);
 
 const PUBLICAS = ["/entrar", "/bem-vindo"];
 /** Abrem com ou sem login e nunca redirecionam: link do tutor, troca de senha, termos e página de vendas. */
-const ABERTAS = ["/acompanhar", "/nova-senha", "/termos", "/privacidade", "/conheca"];
+const ABERTAS = ["/acompanhar", "/agendar", "/nova-senha", "/termos", "/privacidade", "/conheca"];
 /** Pedem login, mas não um pet shop: o painel do administrador da plataforma. */
 const SO_LOGIN = ["/admin"];
 

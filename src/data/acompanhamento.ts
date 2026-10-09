@@ -13,7 +13,18 @@ interface Resposta {
   petshop: { nome: string; whatsapp: string | null; fuso: string | null };
   pet: { nome: string; raca: string | null; especie: Especie; foto_path: string | null };
   tutor: { nome: string };
-  atendimento: { inicio: string; status: StatusAtendimento; transporte: Transporte; endereco: string | null; motorista: string | null; itens: string[] };
+  atendimento: {
+    inicio: string;
+    status: StatusAtendimento;
+    transporte: Transporte;
+    endereco: string | null;
+    motorista: string | null;
+    itens: string[];
+    origem?: string;
+    sinal?: number | string | null;
+    sinal_pago?: boolean | null;
+  };
+  fidelidade?: { meta: number; selos: number; premio: string } | null;
   eventos: { para: StatusAtendimento; em: string }[];
   etapas: { id: string; etapa: Etapa; nota: string | null; foto_path: string | null; em: string }[];
   em_rota: boolean;
@@ -40,7 +51,11 @@ export async function buscarAcompanhamento(sb: SupabaseClient, token: string): P
       transporte: r.atendimento.transporte,
       endereco: r.atendimento.endereco ?? undefined,
       motorista: r.atendimento.motorista ?? undefined,
+      online: r.atendimento.origem === "portal",
+      sinal: Number(r.atendimento.sinal) || undefined,
+      sinalPago: !!r.atendimento.sinal_pago,
     },
+    fidelidade: r.fidelidade ?? undefined,
     eventos: r.eventos,
     etapas: r.etapas.map((e) => ({ id: e.id, etapa: e.etapa, nota: e.nota ?? undefined, fotoUrl: foto(e.foto_path), em: e.em })),
     emRota: r.em_rota,

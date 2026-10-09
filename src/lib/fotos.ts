@@ -34,6 +34,18 @@ export function urlPublicaDoProjeto(supabaseUrl: string, path: string): string {
   return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
+/** Caminho no bucket a partir da URL pública (undefined para fotos da demonstração). */
+export function caminhoDaUrl(url: string | undefined): string | undefined {
+  const marca = `/object/public/${BUCKET}/`;
+  const i = url?.indexOf(marca) ?? -1;
+  return url && i >= 0 ? decodeURIComponent(url.slice(i + marca.length).split("?")[0]) : undefined;
+}
+
+export async function apagarFoto(sb: SupabaseClient, path: string): Promise<void> {
+  const { error } = await sb.storage.from(BUCKET).remove([path]);
+  if (error) throw new Error(`Não foi possível apagar a foto: ${error.message}`);
+}
+
 /** Sobe a foto já reduzida e devolve o caminho no bucket. */
 export async function subirFoto(sb: SupabaseClient, path: string, blob: Blob): Promise<string> {
   const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true, cacheControl: "31536000" });

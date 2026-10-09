@@ -198,7 +198,7 @@ export function montarPrevia(db: Db, linhas: unknown[][], mapa = mapearColunas(l
 }
 
 /** Aplica a prévia no Db e devolve o que é novo (para gravar no banco em lote). */
-export function aplicarImportacao(db: Db, previa: Previa, agora: Date): { db: Db; tutores: Tutor[]; pets: Pet[] } {
+export function aplicarImportacao(db: Db, previa: Previa, agora: Date, consentimento = true): { db: Db; tutores: Tutor[]; pets: Pet[] } {
   const tutores: Tutor[] = [];
   const pets: Pet[] = [];
   const zapsExistentes = new Set(db.tutores.map((t) => t.whatsapp));
@@ -213,7 +213,7 @@ export function aplicarImportacao(db: Db, previa: Previa, agora: Date): { db: Db
         whatsapp: t.whatsapp,
         email: t.email,
         endereco: t.endereco,
-        consentimentoWhatsapp: true,
+        consentimentoWhatsapp: consentimento,
         criadoEm: agora.toISOString(),
       });
     }

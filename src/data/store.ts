@@ -10,7 +10,24 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AtendimentoEtapa, Db, Etapa, Transporte, FormaPagamento, Membro, MensagemEnvio, Pet, Petshop, Posicao, Servico, StatusAtendimento } from "@/domain/types";
+import type {
+  AtendimentoEtapa,
+  Db,
+  Etapa,
+  Transporte,
+  FormaPagamento,
+  Membro,
+  MensagemEnvio,
+  MensagemModelo,
+  Pet,
+  Petshop,
+  PlanoModelo,
+  Posicao,
+  Produto,
+  Servico,
+  StatusAtendimento,
+  Tutor,
+} from "@/domain/types";
 import { criarSeed } from "./seed";
 import * as R from "@/domain/rules";
 import { hoje } from "@/domain/format";
@@ -18,6 +35,11 @@ import { MODELOS_PADRAO } from "@/domain/messages";
 import { blobParaDataUrl, reduzirFoto, subirFoto, urlPublica } from "@/lib/fotos";
 import { carregar, gerarConvite, remoto, traduzirErro } from "./cloud";
 import { aplicarImportacao, type Previa } from "@/domain/importacao";
+import * as E from "@/domain/edicao";
+import * as P from "@/domain/produtos";
+import * as V from "@/domain/vacinas";
+import * as F from "@/domain/fidelidade";
+import { agendarNoDb, type Confirmacao, type PedidoOnline } from "@/domain/agendamento-online";
 
 type Resultado<T = void> = { ok: true; valor: T } | { ok: false; erro: string };
 export type Modo = "demo" | "nuvem";
@@ -64,16 +86,16 @@ interface Estado {
   fecharCaixa: (data: string) => Resultado;
   venderPlano: (input: R.VendaPlanoInput) => Resultado<string>;
   darBaixaManual: (planoId: string) => Resultado;
-  estornarUso: (usoId: string) => void;
+  estornarUso: (usoId: string) => Resultado;
   criarTutor: (input: { nome: string; whatsapp: string; endereco?: string; consentimentoWhatsapp?: boolean }) => Resultado<string>;
   criarPet: (input: Omit<Pet, "id">) => Resultado<string>;
   /** Clientes e pets vindos de uma planilha, gravados em lote. */
-  importarClientes: (previa: Previa) => Resultado<{ tutores: number; pets: number }>;
+  importarClientes: (previa: Previa, consentimento?: boolean) => Resultado<{ tutores: number; pets: number }>;
   atualizarPet: (pet: Pet) => void;
   criarMembro: (input: { nome: string; papel: Membro["papel"]; comissaoPct: number }) => Resultado<string>;
   salvarModelo: (id: string, texto: string) => void;
-  salvarServico: (servico: Servico) => void;
-  atualizarPetshop: (dados: Partial<Petshop>) => void;
+  salvarServico: (servico: Servico) => Resultado;
+  atualizarPetshop: (dados: Partial<Petshop>) => Resultado;
   restaurarModelos: () => void;
   registrarEnvio: (modeloId: string, tutorId: string, atendimentoId?: string) => void;
   /** Demonstração: ver o app com os olhos de outra pessoa da equipe. */
@@ -88,6 +110,38 @@ interface Estado {
   enviarPosicao: (pos: Posicao) => void;
   registrarAcerto: (input: R.AcertoInput) => Resultado<R.ComissaoAcertoResultado>;
   definirTransporte: (atendimentoId: string, input: { transporte: Transporte; enderecoTransporte?: string; motoristaId?: string }) => Resultado;
+
+  // Edição e correções
+  editarMembro: (id: string, dados: Parameters<typeof E.editarMembro>[2]) => Resultado;
+  editarTutor: (id: string, dados: Partial<Pick<Tutor, "nome" | "whatsapp" | "email" | "endereco" | "consentimentoWhatsapp">>) => Resultado;
+  excluirTutor: (id: string) => Resultado;
+  excluirPet: (id: string) => Resultado;
+  salvarPacote: (m: PlanoModelo) => Resultado;
+  cancelarPlano: (input: E.CancelarPlanoInput) => Resultado;
+  editarObservacoesPlano: (planoId: string, observacoes: string) => Resultado;
+  editarAtendimento: (id: string, e: E.EdicaoAtendimento) => Resultado;
+  registrarSinal: (atendimentoId: string, forma: FormaPagamento) => Resultado;
+  lancarReceita: (input: E.ReceitaInput) => Resultado;
+  estornarPagamento: (lancamentoId: string) => Resultado;
+  excluirLancamento: (lancamentoId: string) => Resultado;
+  editarModelo: (id: string, dados: Partial<Pick<MensagemModelo, "titulo" | "texto" | "ativo">>) => Resultado;
+  removerEtapa: (etapaId: string, soFoto: boolean) => Resultado;
+
+  // Produtos e estoque
+  salvarProduto: (p: Produto, estoqueInicial?: number) => Resultado<string>;
+  entradaEstoque: (input: P.EntradaInput) => Resultado;
+  ajustarEstoque: (input: { produtoId: string; saldoReal: number; observacao?: string }) => Resultado;
+  registrarVenda: (input: P.VendaInput) => Resultado<string>;
+  cancelarVenda: (vendaId: string) => Resultado;
+
+  // Vacinas e fidelidade
+  salvarVacina: (input: V.VacinaInput) => Resultado;
+  excluirVacina: (id: string) => Resultado;
+  resgatarFidelidade: (atendimentoId: string) => Resultado;
+  desfazerResgate: (atendimentoId: string) => Resultado;
+
+  /** Demonstração: o pedido da página pública cai na agenda deste navegador. */
+  agendarOnlineDemo: (pedido: PedidoOnline) => Resultado<Confirmacao>;
 }
 
 const ALFABETO_CONVITE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -187,9 +241,12 @@ export const useApp = create<Estado>()(
           aplicar(
             (db) => {
               const r = R.mudarStatus(db, id, para, db.usuarioAtualId, new Date());
-              return { db: r.db, valor: r.efeitos };
+              return { db: r.db, valor: r.efeitos, ctx: !!F.resgateDoAtendimento(db, id) && (para === "cancelado" || para === "faltou") };
             },
-            (c, ps) => remoto.mudarStatus(c, ps, id, para),
+            async (c, ps, liberarPremio) => {
+              await remoto.mudarStatus(c, ps, id, para);
+              if (liberarPremio) await remoto.liberarResgate(c, ps, id);
+            },
           ),
 
         reatribuir: (id, profissionalId) =>
@@ -239,12 +296,11 @@ export const useApp = create<Estado>()(
             (c, ps, uso) => remoto.usoPlano(c, ps, uso),
           ),
 
-        estornarUso: (usoId) => {
+        estornarUso: (usoId) =>
           aplicar(
-            (db) => ({ db: R.estornarUso(db, usoId), valor: undefined }),
+            (db) => ({ db: E.desfazerUso(db, usoId), valor: undefined }),
             (c, ps) => remoto.estornarUso(c, ps, usoId),
-          );
-        },
+          ),
 
         criarTutor: (input) =>
           aplicar(
@@ -264,10 +320,10 @@ export const useApp = create<Estado>()(
             (c, ps, p) => remoto.pet(c, ps, p, true),
           ),
 
-        importarClientes: (previa) =>
+        importarClientes: (previa, consentimento = true) =>
           aplicar(
             (db) => {
-              const r = aplicarImportacao(db, previa, new Date());
+              const r = aplicarImportacao(db, previa, new Date(), consentimento);
               return { db: r.db, valor: { tutores: r.tutores.length, pets: r.pets.length }, ctx: r };
             },
             (c, ps, r) => remoto.importar(c, ps, r.tutores, r.pets),
@@ -296,28 +352,38 @@ export const useApp = create<Estado>()(
           );
         },
 
-        salvarServico: (servico) => {
-          aplicar(
-            (db) => ({ db: { ...db, servicos: db.servicos.map((s) => (s.id === servico.id ? servico : s)) }, valor: undefined }),
-            (c, ps) => remoto.servico(c, ps, servico),
-          );
-        },
-
-        atualizarPetshop: (dados) => {
-          aplicar(
-            (db) => ({ db: { ...db, petshop: { ...db.petshop, ...dados } }, valor: undefined }),
-            (c, ps) => remoto.petshop(c, ps, dados),
-          );
-        },
-
-        restaurarModelos: () => {
-          const padrao = new Map(MODELOS_PADRAO.map((m) => [m.gatilho, m.texto]));
+        salvarServico: (servico) =>
           aplicar(
             (db) => {
-              const modelos = db.mensagemModelos.map((m) => ({ ...m, texto: padrao.get(m.gatilho) ?? m.texto }));
-              return { db: { ...db, mensagemModelos: modelos }, valor: undefined, ctx: modelos };
+              const r = E.salvarServico(db, servico);
+              return { db: r.db, valor: undefined, ctx: r };
             },
-            (c, ps, modelos) => Promise.all(modelos.map((m) => remoto.modelo(c, ps, m.id, m.texto))),
+            (c, ps, r) => remoto.servico(c, ps, r.servico, r.novo),
+          ),
+
+        atualizarPetshop: (dados) =>
+          aplicar(
+            (db) => {
+              const r = E.editarPetshop(db, dados);
+              return { db: r.db, valor: undefined, ctx: r.dados };
+            },
+            (c, ps, d) => remoto.petshop(c, ps, d),
+          ),
+
+        restaurarModelos: () => {
+          const padrao = new Map(MODELOS_PADRAO.map((m) => [m.gatilho, m]));
+          aplicar(
+            (db) => {
+              const modelos = db.mensagemModelos.map((m) => ({ ...m, titulo: padrao.get(m.gatilho)?.titulo ?? m.titulo, texto: padrao.get(m.gatilho)?.texto ?? m.texto, ativo: true }));
+              // Modelos que surgiram depois (ex.: lembrete de vacina) entram também.
+              const faltam = MODELOS_PADRAO.filter((p) => !modelos.some((m) => m.gatilho === p.gatilho)).map((m) => ({ ...m, id: R.uid() }));
+              const todos = [...modelos, ...faltam].sort((a, b) => MODELOS_PADRAO.findIndex((x) => x.gatilho === a.gatilho) - MODELOS_PADRAO.findIndex((x) => x.gatilho === b.gatilho));
+              return { db: { ...db, mensagemModelos: todos }, valor: undefined, ctx: { modelos, faltam } };
+            },
+            async (c, ps, { modelos, faltam }) => {
+              await Promise.all(modelos.map((m) => remoto.modeloEditar(c, ps, m)));
+              for (const m of faltam) await remoto.modeloNovo(c, ps, m);
+            },
           );
         },
 
@@ -422,11 +488,226 @@ export const useApp = create<Estado>()(
             },
             (c, ps, acerto) => remoto.acerto(c, ps, acerto),
           ),
+
+        // -------------------------------------------------------------------
+        // Edição e correções
+        // -------------------------------------------------------------------
+
+        editarMembro: (id, dados) =>
+          aplicar(
+            (db) => {
+              const r = E.editarMembro(db, id, dados);
+              return { db: r.db, valor: undefined, ctx: r.membro };
+            },
+            (c, ps, m) => remoto.membroEditar(c, ps, m),
+          ),
+
+        editarTutor: (id, dados) =>
+          aplicar(
+            (db) => {
+              const r = E.editarTutor(db, id, dados);
+              return { db: r.db, valor: undefined, ctx: { t: r.tutor, antes: R.porId(db.tutores, id) } };
+            },
+            (c, ps, { t, antes }) => remoto.tutorEditar(c, ps, t, antes),
+          ),
+
+        excluirTutor: (id) =>
+          aplicar(
+            (db) => ({ db: E.excluirTutor(db, id), valor: undefined }),
+            (c, ps) => remoto.excluirTutor(c, ps, id),
+          ),
+
+        excluirPet: (id) =>
+          aplicar(
+            (db) => ({ db: E.excluirPet(db, id).db, valor: undefined }),
+            (c, ps) => remoto.excluirPet(c, ps, id),
+          ),
+
+        salvarPacote: (m) =>
+          aplicar(
+            (db) => {
+              const r = E.salvarPacote(db, m);
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.pacote(c, ps, r.pacote, r.novo),
+          ),
+
+        cancelarPlano: (input) =>
+          aplicar(
+            (db) => {
+              const r = E.cancelarPlano(db, input, new Date());
+              const plano = R.porId(r.db.planosPet, input.planoId)!;
+              const afetados = r.db.atendimentos.filter((a) => {
+                const antes = R.porId(db.atendimentos, a.id);
+                return antes?.planoPetId === plano.id && !a.planoPetId;
+              });
+              return { db: r.db, valor: undefined, ctx: { plano, afetados, despesa: r.despesa } };
+            },
+            (c, ps, x) => remoto.cancelarPlano(c, ps, x.plano, x.afetados, x.despesa),
+          ),
+
+        editarObservacoesPlano: (planoId, observacoes) =>
+          aplicar(
+            (db) => {
+              const novo = E.editarObservacoesPlano(db, planoId, observacoes);
+              return { db: novo, valor: undefined, ctx: R.porId(novo.planosPet, planoId)!.observacoes };
+            },
+            (c, ps, obs) => remoto.planoObs(c, ps, planoId, obs),
+          ),
+
+        editarAtendimento: (id, e) =>
+          aplicar(
+            (db) => {
+              const r = E.editarAtendimento(db, id, e);
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.editarAtendimento(c, ps, r.atendimento, r.itensMudaram),
+          ),
+
+        registrarSinal: (atendimentoId, forma) =>
+          aplicar(
+            (db) => {
+              const r = E.registrarSinal(db, atendimentoId, forma, new Date());
+              return { db: r.db, valor: undefined, ctx: r.lancamento };
+            },
+            (c, ps, l) => remoto.sinal(c, ps, atendimentoId, l),
+          ),
+
+        lancarReceita: (input) =>
+          aplicar(
+            (db) => {
+              const r = E.lancarReceita(db, input, new Date());
+              return { db: r.db, valor: undefined, ctx: r.lancamento };
+            },
+            (c, ps, l) => remoto.lancamento(c, ps, l),
+          ),
+
+        estornarPagamento: (lancamentoId) =>
+          aplicar(
+            (db) => ({ db: E.estornarPagamento(db, lancamentoId), valor: undefined, ctx: R.porId(db.lancamentos, lancamentoId)! }),
+            (c, ps, l) => remoto.estornarPagamento(c, ps, l),
+          ),
+
+        excluirLancamento: (lancamentoId) =>
+          aplicar(
+            (db) => ({ db: E.excluirLancamento(db, lancamentoId), valor: undefined }),
+            (c, ps) => remoto.excluirLancamento(c, ps, lancamentoId),
+          ),
+
+        editarModelo: (id, dados) =>
+          aplicar(
+            (db) => {
+              const r = E.editarModelo(db, id, dados);
+              return { db: r.db, valor: undefined, ctx: r.modelo };
+            },
+            (c, ps, m) => remoto.modeloEditar(c, ps, m),
+          ),
+
+        removerEtapa: (etapaId, soFoto) =>
+          aplicar(
+            (db) => ({ db: E.removerEtapa(db, etapaId, soFoto), valor: undefined, ctx: db.etapas.find((e) => e.id === etapaId)! }),
+            (c, ps, e) => remoto.removerEtapa(c, ps, e, soFoto),
+          ),
+
+        // -------------------------------------------------------------------
+        // Produtos e estoque
+        // -------------------------------------------------------------------
+
+        salvarProduto: (p, estoqueInicial = 0) =>
+          aplicar(
+            (db) => {
+              const r = P.salvarProduto(db, p, new Date(), estoqueInicial);
+              return { db: r.db, valor: r.produto.id, ctx: r };
+            },
+            async (c, ps, r) => {
+              await remoto.produto(c, ps, r.produto, r.novo);
+              if (r.movimento) await remoto.movimento(c, ps, r.movimento);
+            },
+          ),
+
+        entradaEstoque: (input) =>
+          aplicar(
+            (db) => {
+              const r = P.entradaEstoque(db, input, new Date());
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.movimento(c, ps, r.movimento, r.despesa),
+          ),
+
+        ajustarEstoque: (input) =>
+          aplicar(
+            (db) => {
+              const r = P.ajustarEstoque(db, input, new Date());
+              return { db: r.db, valor: undefined, ctx: r.movimento };
+            },
+            (c, ps, m) => remoto.movimento(c, ps, m),
+          ),
+
+        registrarVenda: (input) =>
+          aplicar(
+            (db) => {
+              const r = P.registrarVenda(db, input, new Date());
+              return { db: r.db, valor: r.venda.id, ctx: r };
+            },
+            (c, ps, r) => remoto.venda(c, ps, r.venda, r.lancamento),
+          ),
+
+        cancelarVenda: (vendaId) =>
+          aplicar(
+            (db) => {
+              const r = P.cancelarVenda(db, vendaId, new Date());
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.cancelarVenda(c, ps, r.venda, r.estornos, r.removerLancamento, r.despesa),
+          ),
+
+        // -------------------------------------------------------------------
+        // Vacinas e fidelidade
+        // -------------------------------------------------------------------
+
+        salvarVacina: (input) =>
+          aplicar(
+            (db) => {
+              const r = V.salvarVacina(db, input);
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.vacina(c, ps, r.vacina, r.novo),
+          ),
+
+        excluirVacina: (id) =>
+          aplicar(
+            (db) => ({ db: V.excluirVacina(db, id), valor: undefined }),
+            (c, ps) => remoto.excluirVacina(c, ps, id),
+          ),
+
+        resgatarFidelidade: (atendimentoId) =>
+          aplicar(
+            (db) => {
+              const r = F.resgatar(db, atendimentoId, new Date());
+              return { db: r.db, valor: undefined, ctx: r };
+            },
+            (c, ps, r) => remoto.resgate(c, ps, r.resgate, r.atendimento),
+          ),
+
+        desfazerResgate: (atendimentoId) =>
+          aplicar(
+            (db) => {
+              const r = F.desfazerResgate(db, atendimentoId);
+              return { db: r.db, valor: undefined, ctx: r.atendimento };
+            },
+            (c, ps, a) => remoto.desfazerResgate(c, ps, a),
+          ),
+
+        agendarOnlineDemo: (pedido) =>
+          aplicar((db) => {
+            const r = agendarNoDb(db, pedido, new Date());
+            return { db: r.db, valor: r.confirmacao };
+          }),
       };
     },
     {
-      // v3: dados de exemplo com leva e traz, etapas com foto e acertos de comissão.
-      name: "app-pet:v3",
+      // v4: produtos e estoque, vacinas, fidelidade e agendamento online nos dados de exemplo.
+      name: "app-pet:v4",
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       // Só o modo demonstração fica no navegador; o modo nuvem sempre lê do banco.

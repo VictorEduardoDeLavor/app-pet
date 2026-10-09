@@ -21,6 +21,7 @@ import {
   UserX,
   Wind,
   X,
+  Ellipsis,
 } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { Etapa } from "@/domain/types";
@@ -190,7 +191,20 @@ function hora(iso: string, fuso?: string) {
   return dia(d) === dia(new Date()) ? h : `${dia(d)} · ${h}`;
 }
 
-export function LinhaDoTempo({ itens, paraTutor = false, fuso, vazio }: { itens: ItemLinha[]; paraTutor?: boolean; fuso?: string; vazio?: ReactNode }) {
+export function LinhaDoTempo({
+  itens,
+  paraTutor = false,
+  fuso,
+  vazio,
+  onGerenciar,
+}: {
+  itens: ItemLinha[];
+  paraTutor?: boolean;
+  fuso?: string;
+  vazio?: ReactNode;
+  /** Equipe: abre as opções de uma etapa registrada (tirar foto, apagar). */
+  onGerenciar?: (etapaId: string) => void;
+}) {
   const [zoom, setZoom] = useState<string | null>(null);
   if (itens.length === 0) return <>{vazio ?? null}</>;
   const ordem = paraTutor ? [...itens].reverse() : itens;
@@ -214,7 +228,14 @@ export function LinhaDoTempo({ itens, paraTutor = false, fuso, vazio }: { itens:
               <div className="min-w-0 flex-1 pt-1.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <p className={cx("text-[14.5px] leading-snug", atual ? "font-semibold text-ink" : "font-medium text-ink/85")}>{paraTutor ? it.frase : it.titulo}</p>
-                  <span className="shrink-0 text-[12px] tabular-nums text-muted">{hora(it.em, fuso)}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-[12px] tabular-nums text-muted">
+                    {hora(it.em, fuso)}
+                    {onGerenciar && !it.id.startsWith("ev_") && (
+                      <button type="button" aria-label={`Opções de ${it.titulo}`} onClick={() => onGerenciar(it.id)} className="tap -my-1 grid h-7 w-7 place-items-center rounded-full hover:bg-surface">
+                        <Ellipsis className="h-4 w-4" />
+                      </button>
+                    )}
+                  </span>
                 </div>
                 {it.nota && <p className="mt-0.5 text-[13.5px] text-muted">“{it.nota}”</p>}
                 {it.fotoUrl && (

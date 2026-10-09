@@ -48,6 +48,7 @@ function NovoAgendamento() {
   const [novoTutor, setNovoTutor] = useState(false);
   const [tNome, setTNome] = useState("");
   const [tZap, setTZap] = useState("");
+  const [tConsent, setTConsent] = useState(true);
   const [novoPet, setNovoPet] = useState(false);
   const [pNome, setPNome] = useState("");
   const [pRaca, setPRaca] = useState("");
@@ -139,6 +140,10 @@ function NovoAgendamento() {
               <p className="text-[13px] font-semibold uppercase tracking-wide text-brand-600">Cadastro rápido</p>
               <input className="input" placeholder="Nome completo do tutor" value={tNome} onChange={(e) => setTNome(e.target.value)} />
               <input className="input" placeholder="WhatsApp com DDD" inputMode="tel" value={tZap} onChange={(e) => setTZap(e.target.value)} />
+              <label className="flex items-start gap-2.5 text-[13px] text-muted">
+                <input type="checkbox" checked={tConsent} onChange={(e) => setTConsent(e.target.checked)} className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-brand-600" />
+                Tutor aceita receber avisos pelo WhatsApp (LGPD)
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 <Botao variante="fantasma" className="h-11" onClick={() => setNovoTutor(false)}>
                   Voltar
@@ -146,7 +151,7 @@ function NovoAgendamento() {
                 <Botao
                   className="h-11"
                   onClick={() => {
-                    const r = criarTutor({ nome: tNome, whatsapp: normalizarWhatsapp(tZap) });
+                    const r = criarTutor({ nome: tNome, whatsapp: normalizarWhatsapp(tZap), consentimentoWhatsapp: tConsent });
                     if (!r.ok) return toast(r.erro, "erro");
                     setTutorId(r.valor);
                     setNovoTutor(false);

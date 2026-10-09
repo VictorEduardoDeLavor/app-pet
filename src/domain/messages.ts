@@ -1,7 +1,8 @@
 // Mensagens de WhatsApp: modelos com variáveis e link wa.me.
 // MVP: envio manual (abre o WhatsApp com o texto pronto). V2: mesmo modelo disparado pela API.
 
-import type { Atendimento, Db, GatilhoMensagem, MensagemModelo, StatusAtendimento } from "./types";
+import type { Atendimento, Db, GatilhoMensagem, MensagemModelo, StatusAtendimento, Vacina } from "./types";
+import { textoVencimento } from "./vacinas";
 import { dataCurta, diferencaDias, hoje, moeda, primeiroNome } from "./format";
 import { porId, saldoPlano } from "./rules";
 
@@ -16,6 +17,9 @@ export const VARIAVEIS = [
   { chave: "petshop", rotulo: "Pet shop" },
   { chave: "saldo_plano", rotulo: "Saldo do plano" },
   { chave: "link", rotulo: "Link de acompanhamento" },
+  { chave: "vacina", rotulo: "Vacina" },
+  { chave: "vencimento", rotulo: "Vencimento" },
+  { chave: "agendar", rotulo: "Link para agendar" },
 ] as const;
 
 export type Variaveis = Partial<Record<(typeof VARIAVEIS)[number]["chave"], string>>;
@@ -77,6 +81,14 @@ export const MODELOS_PADRAO: MensagemModelo[] = [
       "Olá, {tutor}! Estamos com saudades de {pet} aqui na {petshop}. Já faz um tempinho desde o último banho. Quer agendar um horário esta semana?",
     ativo: true,
   },
+  {
+    id: "msg_vacina",
+    gatilho: "vacina",
+    titulo: "Vacina vencendo",
+    texto:
+      "Olá, {tutor}! A {vacina} de {pet} vence {vencimento}. Mantenha a carteirinha em dia: é importante para a saúde dele e para o banho aqui na {petshop}.",
+    ativo: true,
+  },
 ];
 
 export function renderMensagem(texto: string, vars: Variaveis): string {
@@ -92,6 +104,12 @@ export function quando(data: string, ref: string = hoje()): string {
   if (dias === 0) return "hoje";
   if (dias === 1) return "amanhã";
   return `no dia ${dataCurta(data)}`;
+}
+
+/** Página pública de agendamento do pet shop. */
+export function linkAgendar(slug: string, origem?: string): string {
+  const base = origem ?? (typeof window !== "undefined" ? window.location.origin : "");
+  return `${base}/agendar/${slug}`;
 }
 
 /** Link que o tutor abre para acompanhar o atendimento (sem senha). */
@@ -116,6 +134,21 @@ export function variaveisDoAtendimento(db: Db, atd: Atendimento, ref: string = h
     valor,
     petshop: db.petshop.nome,
     saldo_plano: saldo !== undefined ? `${saldo} ${saldo === 1 ? "banho" : "banhos"}` : undefined,
+    agendar: db.petshop.agendamentoOnline ? linkAgendar(db.petshop.slug) : undefined,
+  };
+}
+
+/** Variáveis do lembrete de vacina. */
+export function variaveisDaVacina(db: Db, v: Vacina, ref: string = hoje()): Variaveis {
+  const pet = porId(db.pets, v.petId);
+  const tutor = pet ? porId(db.tutores, pet.tutorId) : undefined;
+  return {
+    tutor: tutor ? primeiroNome(tutor.nome) : undefined,
+    pet: pet?.nome,
+    petshop: db.petshop.nome,
+    vacina: v.nome,
+    vencimento: v.proximaEm ? textoVencimento(v.proximaEm, ref) : undefined,
+    agendar: db.petshop.agendamentoOnline ? linkAgendar(db.petshop.slug) : undefined,
   };
 }
 

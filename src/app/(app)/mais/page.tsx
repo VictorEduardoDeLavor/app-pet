@@ -3,22 +3,23 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Car, Check, ChevronRight, ClipboardList, Clock, CreditCard, HandCoins, ShieldCheck, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
+import { BarChart3, Car, Check, ChevronRight, ClipboardList, CreditCard, Globe, HandCoins, ShieldCheck, ListChecks, LogIn, LogOut, RotateCcw, Scissors, ShoppingBag, Store, UserCog, Wallet } from "lucide-react";
 import { useApp, useDb, useEu } from "@/data/store";
 import { comissoesPendentes, resumoCaixa, planosAVencer, profissionais, resumoProfissional, rotasDoDia, totalComissao } from "@/domain/rules";
 import { NOME_PAPEL, inicioDoPapel, pode } from "@/domain/permissoes";
 import { hoje, iniciais, moedaCurta } from "@/domain/format";
-import { Botao, Chip, Folha, Titulo, cx } from "@/components/ui";
+import { Botao, Folha, Titulo, cx } from "@/components/ui";
+import { produtosAbaixoDoMinimo } from "@/domain/produtos";
 import { useSessao, useToast } from "@/components/providers";
 import { useAssinatura } from "@/data/assinatura";
 import { situacao } from "@/domain/assinatura";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const diasTexto = (dias: number[]) => (dias.length === 7 ? "todos os dias" : dias.map((d) => DIAS[d]).join(", "));
 
 export default function Mais() {
   const db = useDb();
   const resetar = useApp((s) => s.resetar);
-  const atualizar = useApp((s) => s.atualizarPetshop);
   const toast = useToast();
   const modo = useApp((s) => s.modo);
   const entrarComo = useApp((s) => s.entrarComo);
@@ -74,71 +75,33 @@ export default function Mais() {
             <Item href="/rotas" icone={<Car />} titulo="Leva e traz" detalhe={nRotas ? `${nRotas} ${nRotas === 1 ? "rota pendente" : "rotas pendentes"} hoje` : "Nada pendente hoje"} />
           )}
           {pode(papel, "financeiro") && <Item href="/financeiro" icone={<Wallet />} titulo="Financeiro" detalhe={`Caixa de hoje ${moedaCurta(caixa.saldo)}`} />}
+          {pode(papel, "relatorios") && <Item href="/relatorios" icone={<BarChart3 />} titulo="Relatórios" detalhe="Faturamento, serviços, clientes e equipe" />}
           {pode(papel, "comissoes") && <Item href="/comissoes" icone={<HandCoins />} titulo="Comissões" detalhe={`${moedaCurta(aPagar)} a pagar`} />}
           {pode(papel, "planos") && <Item href="/planos" icone={<ClipboardList />} titulo="Planos e pacotes" detalhe={`${planosAVencer(db, T).length} a vencer`} />}
           {pode(papel, "servicos") && (
             <Item href="/servicos" icone={<Scissors />} titulo="Serviços e preços" detalhe={`${db.servicos.filter((s) => s.ativo).length} serviços`} />
           )}
           {pode(papel, "equipe") && <Item href="/equipe" icone={<UserCog />} titulo="Equipe" detalhe={`${db.membros.filter((m) => m.ativo).length} pessoas`} />}
-          {pode(papel, "produtos") && <Item href="/produtos" icone={<ShoppingBag />} titulo="Produtos" selo={<Chip tom="neutral">Em breve</Chip>} />}
+          {pode(papel, "produtos") && (
+            <Item
+              href="/produtos"
+              icone={<ShoppingBag />}
+              titulo="Produtos e estoque"
+              detalhe={(() => {
+                const baixos = produtosAbaixoDoMinimo(db).length;
+                return baixos ? `${baixos} com estoque baixo` : `${db.produtos.filter((p) => p.ativo).length} produtos`;
+              })()}
+            />
+          )}
+          {pode(papel, "configuracoes") && (
+            <Item href="/configuracoes" icone={<Store />} titulo="Dados do pet shop" detalhe={`${ps.abre} às ${ps.fecha} · ${diasTexto(ps.diasAbertos)}`} />
+          )}
+          {pode(papel, "configuracoes") && (
+            <Item href="/configuracoes#online" icone={<Globe />} titulo="Agendamento online e fidelidade" detalhe={[ps.agendamentoOnline ? "Página ligada" : "Página desligada", ps.fidelidadeAtiva ? "cartão ligado" : "cartão desligado"].join(" · ")} />
+          )}
           {pode(papel, "assinatura") && assinatura?.dono && <Item href="/assinatura" icone={<CreditCard />} titulo="Assinatura" detalhe={situacao(assinatura).titulo} />}
           {souAdmin && <Item href="/admin" icone={<ShieldCheck />} titulo="Painel do administrador" detalhe="Pet shops, testes e assinaturas" />}
         </ul>
-      )}
-
-      {pode(papel, "configuracoes") && (
-        <section className="mx-5 mt-6">
-          <h2 className="mb-3 flex items-center gap-2 text-[17px] font-semibold">
-            <Store className="h-5 w-5 text-brand-600" />
-            {ps.nome}
-          </h2>
-          <div className="space-y-4 rounded-[20px] bg-surface px-4 py-4">
-            <div>
-              <p className="label flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" />
-                Funcionamento · {ps.abre} às {ps.fecha}
-              </p>
-              <div className="grid grid-cols-7 gap-1.5">
-                {DIAS.map((d, i) => {
-                  const on = ps.diasAbertos.includes(i);
-                  return (
-                    <button
-                      key={d}
-                      onClick={() => atualizar({ diasAbertos: on ? ps.diasAbertos.filter((x) => x !== i) : [...ps.diasAbertos, i].sort() })}
-                      className={cx("tap rounded-xl py-2 text-[12.5px] font-medium", on ? "bg-brand-600 text-white" : "bg-white text-muted")}
-                    >
-                      {d}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <label className="flex items-center justify-between gap-3 text-[14.5px]">
-              <span>
-                Falta consome 1 uso do plano
-                <span className="block text-[12.5px] text-muted">Quando o tutor não aparece.</span>
-              </span>
-              <input type="checkbox" className="h-6 w-6 accent-brand-600" checked={ps.faltaConsomeUso} onChange={(e) => atualizar({ faltaConsomeUso: e.target.checked })} />
-            </label>
-            <label className="flex items-center justify-between gap-3 text-[14.5px]">
-              <span>
-                Cliente sumido após
-                <span className="block text-[12.5px] text-muted">Dias sem visita para sugerir mensagem.</span>
-              </span>
-              <select
-                className="rounded-xl border border-line bg-white px-3 py-2 text-[14.5px]"
-                value={ps.diasClienteSumido}
-                onChange={(e) => atualizar({ diasClienteSumido: Number(e.target.value) })}
-              >
-                {[21, 30, 45, 60, 90].map((d) => (
-                  <option key={d} value={d}>
-                    {d} dias
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </section>
       )}
 
       {modo === "demo" && (

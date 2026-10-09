@@ -22,12 +22,17 @@ import type {
   PlanoUso,
   Porte,
   Posicao,
+  Produto,
+  MovimentoEstoque,
+  ResgateFidelidade,
   Servico,
   Tutor,
+  Vacina,
+  Venda,
 } from "@/domain/types";
 import { ErroRegra } from "@/domain/rules";
 import { MODELOS_PADRAO } from "@/domain/messages";
-import { urlPublica } from "@/lib/fotos";
+import { apagarFoto, caminhoDaUrl, urlPublica } from "@/lib/fotos";
 import { SERVICOS } from "./seed";
 
 type Sb = SupabaseClient;
@@ -85,6 +90,9 @@ export function traduzirErro(e: unknown): ErroRegra {
   if (err?.code === "23P01" || msg.includes("atendimentos_sem_conflito"))
     return new ErroRegra("Conflito de horário: este profissional já tem um atendimento nesse período.");
   if (msg.includes("planos_pet_um_ativo")) return new ErroRegra("Este pet já tem um plano ativo.");
+  if (msg.includes("petshops_slug_key")) return new ErroRegra("Esse endereço de página já é usado por outro pet shop. Escolha outro.");
+  if (msg.includes("petshops_slug_formato")) return new ErroRegra("Endereço da página: só letras minúsculas, números e hífen.");
+  if (msg.includes("tutores_petshop_id_whatsapp_key")) return new ErroRegra("Já existe outro cliente com este WhatsApp.");
   if (err?.code === "23505") return new ErroRegra("Já existe um cadastro com esses dados.");
   if (err?.code === "42501" || msg.includes("row-level security")) return new ErroRegra("Sem permissão para esta ação.");
   if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) return new ErroRegra("Sem conexão. Verifique a internet.");
@@ -131,6 +139,12 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
     etapas,
     posicoes,
     acertos,
+    produtos,
+    movimentos,
+    vendas,
+    vendaItens,
+    vacinas,
+    resgates,
   ] = (await Promise.all([
     ok(sb.from("petshops").select("*").eq("id", ps)),
     t("membros"),
@@ -153,6 +167,13 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
     // Só a posição mais recente das últimas 24 h interessa (o resto é histórico do GPS).
     ok(sb.from("rota_posicoes").select("*").eq("petshop_id", ps).gte("em", new Date(Date.now() - 864e5).toISOString()).order("em", { ascending: false }).limit(500)),
     t("comissao_acertos"), // RLS: dono vê todos; cada pessoa vê os seus
+    t("produtos"),
+    // Estoque e vendas: só dono e recepção recebem linhas (RLS). Histórico de estoque: os 3.000 mais recentes.
+    ok(sb.from("estoque_movimentos").select("*").eq("petshop_id", ps).order("em", { ascending: false }).limit(3000)),
+    t("vendas"),
+    t("venda_itens"),
+    t("pet_vacinas"),
+    t("fidelidade_resgates"),
   ])) as Linha[][];
 
   fuso = (petshop.fuso as string) || FUSO_PADRAO;
@@ -168,6 +189,15 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
       fecha: String(petshop.fecha).slice(0, 5),
       faltaConsomeUso: !!petshop.falta_consome_uso,
       diasClienteSumido: n(petshop.dias_cliente_sumido) || 30,
+      endereco: u(petshop.endereco as string),
+      agendamentoOnline: !!petshop.agendamento_online,
+      pixChave: u(petshop.pix_chave as string),
+      pixCidade: u(petshop.pix_cidade as string),
+      sinalPct: n(petshop.sinal_pct),
+      fidelidadeAtiva: !!petshop.fidelidade_ativa,
+      fidelidadeMeta: n(petshop.fidelidade_meta) || 10,
+      fidelidadeServicoIds: (petshop.fidelidade_servico_ids as string[]) ?? [],
+      fidelidadePremio: (petshop.fidelidade_premio as string) || "1 banho grátis",
     },
     usuarioAtualId: eu.id as string,
     membros: membros.map((m): Membro => {
@@ -177,6 +207,7 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         nome: m.nome as string,
         papel: m.papel as Membro["papel"],
         comissaoPct: n(m.comissao_pct),
+        semComissao: !!m.sem_comissao,
         ativo: !!m.ativo,
         temConta: !!m.user_id,
         convite: conv ? { codigo: conv.codigo as string, expiraEm: conv.expira_em as string } : undefined,
@@ -202,6 +233,7 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         raca: (x.raca as string) ?? "",
         porte: x.porte as Porte,
         sexo: u(x.sexo as Pet["sexo"]),
+        nascimento: u(x.nascimento as string),
         pesoKg: x.peso_kg === null ? undefined : n(x.peso_kg),
         pelagem: u(x.pelagem as string),
         temperamento: u(x.temperamento as string),
@@ -266,6 +298,8 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         transporte: (a.transporte as Atendimento["transporte"]) ?? "nenhum",
         enderecoTransporte: u(a.endereco_transporte as string),
         motoristaId: u(a.motorista_id as string),
+        sinalValor: n(a.sinal_valor) || undefined,
+        sinalPago: n(a.sinal_valor) > 0 ? !!a.sinal_pago : undefined,
       };
     }),
     planosModelo: modelos.map(
@@ -276,6 +310,7 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         quantidadeUsos: n(m.quantidade_usos),
         validadeDias: n(m.validade_dias),
         preco: n(m.preco),
+        ativo: m.ativo !== false,
       }),
     ),
     planosPet: planos.map(
@@ -378,6 +413,66 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
         lancamentoId: u(a.lancamento_id as string),
         criadoEm: a.criado_em as string,
       }),
+    ),
+    produtos: produtos
+      .map(
+        (p): Produto => ({
+          id: p.id as string,
+          nome: p.nome as string,
+          categoria: (p.categoria as string) || "Outros",
+          precoVenda: n(p.preco_venda),
+          custo: p.custo === null ? undefined : n(p.custo),
+          estoque: n(p.estoque),
+          estoqueMinimo: n(p.estoque_minimo),
+          unidade: (p.unidade as string) || "un",
+          ativo: !!p.ativo,
+          criadoEm: p.criado_em as string,
+        }),
+      )
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    movimentos: movimentos.map(
+      (m): MovimentoEstoque => ({
+        id: m.id as string,
+        produtoId: m.produto_id as string,
+        tipo: m.tipo as MovimentoEstoque["tipo"],
+        quantidade: n(m.quantidade),
+        custoUnitario: m.custo_unitario === null ? undefined : n(m.custo_unitario),
+        vendaId: u(m.venda_id as string),
+        observacao: u(m.observacao as string),
+        porMembroId: u(m.membro_id as string),
+        em: m.em as string,
+      }),
+    ),
+    vendas: vendas.map(
+      (v): Venda => ({
+        id: v.id as string,
+        tutorId: u(v.tutor_id as string),
+        atendimentoId: u(v.atendimento_id as string),
+        itens: vendaItens
+          .filter((i) => i.venda_id === v.id)
+          .map((i) => ({ produtoId: u(i.produto_id as string), nome: i.nome as string, quantidade: n(i.quantidade), preco: n(i.preco) })),
+        total: n(v.total),
+        desconto: n(v.desconto),
+        status: v.status as Venda["status"],
+        formaPagamento: u(v.forma_pagamento as FormaPagamento),
+        porMembroId: u(v.membro_id as string),
+        lancamentoId: u(v.lancamento_id as string),
+        criadoEm: v.criado_em as string,
+      }),
+    ),
+    vacinas: vacinas.map(
+      (v): Vacina => ({
+        id: v.id as string,
+        petId: v.pet_id as string,
+        tipo: v.tipo as Vacina["tipo"],
+        nome: v.nome as string,
+        aplicadaEm: u(v.aplicada_em as string),
+        proximaEm: u(v.proxima_em as string),
+        observacao: u(v.observacao as string),
+      }),
+    ),
+    resgates: resgates.map(
+      (r): ResgateFidelidade => ({ id: r.id as string, petId: r.pet_id as string, atendimentoId: u(r.atendimento_id as string), valor: n(r.valor), em: r.em as string }),
     ),
   };
   return { tipo: "ok", db, petshopId: ps };
@@ -513,6 +608,8 @@ export const remoto = {
         status: l.status,
         competencia: l.competencia,
         pago_em: l.pagoEm ?? null,
+        atendimento_id: l.atendimentoId ?? null,
+        plano_pet_id: l.planoPetId ?? null,
       }),
     ),
 
@@ -614,6 +711,7 @@ export const remoto = {
       raca: p.raca || null,
       porte: p.porte,
       sexo: p.sexo ?? null,
+      nascimento: p.nascimento ?? null,
       peso_kg: p.pesoKg ?? null,
       pelagem: p.pelagem ?? null,
       temperamento: p.temperamento ?? null,
@@ -656,6 +754,10 @@ export const remoto = {
 
   modelo: (sb: Sb, _ps: string, id: string, texto: string) => ok(sb.from("mensagem_modelos").update({ texto }).eq("id", id)),
 
+  /** Modelo que faltava no banco (ex.: "vacina" num pet shop antigo). */
+  modeloNovo: (sb: Sb, ps: string, m: MensagemModelo) =>
+    ok(sb.from("mensagem_modelos").upsert({ id: m.id, petshop_id: ps, gatilho: m.gatilho, titulo: m.titulo, texto: m.texto, ativo: m.ativo }, { onConflict: "petshop_id,gatilho" })),
+
   envio: (sb: Sb, ps: string, e: MensagemEnvio) =>
     ok(
       sb.from("mensagens_envios").insert({
@@ -669,8 +771,10 @@ export const remoto = {
       }),
     ),
 
-  servico: async (sb: Sb, ps: string, s: Servico) => {
-    await ok(sb.from("servicos").update({ nome: s.nome, comissao_pct: s.comissaoPct, ativo: s.ativo }).eq("id", s.id));
+  servico: async (sb: Sb, ps: string, s: Servico, novo = false) => {
+    const linha = { nome: s.nome, categoria: s.categoria, comissao_pct: s.comissaoPct, ativo: s.ativo };
+    if (novo) await ok(sb.from("servicos").insert({ id: s.id, petshop_id: ps, ...linha }));
+    else await ok(sb.from("servicos").update(linha).eq("id", s.id));
     await ok(
       sb.from("servico_precos").upsert(
         (Object.keys(s.precos) as Porte[]).map((porte) => ({
@@ -694,12 +798,183 @@ export const remoto = {
     if (d.fecha !== undefined) linha.fecha = d.fecha;
     if (d.faltaConsomeUso !== undefined) linha.falta_consome_uso = d.faltaConsomeUso;
     if (d.diasClienteSumido !== undefined) linha.dias_cliente_sumido = d.diasClienteSumido;
-    return ok(sb.from("petshops").update(linha).eq("id", ps));
+    if ("endereco" in d) linha.endereco = d.endereco ?? null;
+    if (d.slug !== undefined) linha.slug = d.slug;
+    if (d.agendamentoOnline !== undefined) linha.agendamento_online = d.agendamentoOnline;
+    if ("pixChave" in d) linha.pix_chave = d.pixChave ?? null;
+    if ("pixCidade" in d) linha.pix_cidade = d.pixCidade ?? null;
+    if (d.sinalPct !== undefined) linha.sinal_pct = d.sinalPct;
+    if (d.fidelidadeAtiva !== undefined) linha.fidelidade_ativa = d.fidelidadeAtiva;
+    if (d.fidelidadeMeta !== undefined) linha.fidelidade_meta = d.fidelidadeMeta;
+    if (d.fidelidadeServicoIds !== undefined) linha.fidelidade_servico_ids = d.fidelidadeServicoIds;
+    if (d.fidelidadePremio !== undefined) linha.fidelidade_premio = d.fidelidadePremio;
+    return ok(sb.from("petshops").update(linha).eq("id", ps).select("id"));
   },
 
   membro: (sb: Sb, ps: string, m: Membro) =>
-    ok(sb.from("membros").insert({ id: m.id, petshop_id: ps, nome: m.nome, papel: m.papel, comissao_pct: m.comissaoPct, ativo: true })),
+    ok(sb.from("membros").insert({ id: m.id, petshop_id: ps, nome: m.nome, papel: m.papel, comissao_pct: m.comissaoPct, sem_comissao: !!m.semComissao, ativo: true })),
+
+  membroEditar: (sb: Sb, _ps: string, m: Membro) =>
+    ok(
+      sb
+        .from("membros")
+        .update({ nome: m.nome, papel: m.papel, comissao_pct: m.comissaoPct, sem_comissao: !!m.semComissao, ativo: m.ativo })
+        .eq("id", m.id)
+        .select("id"),
+    ),
+
+  tutorEditar: (sb: Sb, _ps: string, t: Tutor, antes?: Tutor) => {
+    const linha: Linha = { nome: t.nome, whatsapp: t.whatsapp, email: t.email ?? null, endereco: t.endereco ?? null };
+    if (!!antes?.consentimentoWhatsapp !== t.consentimentoWhatsapp) linha.consentimento_whatsapp_em = t.consentimentoWhatsapp ? new Date().toISOString() : null;
+    return ok(sb.from("tutores").update(linha).eq("id", t.id).select("id"));
+  },
+
+  excluirTutor: (sb: Sb, _ps: string, id: string) => ok(sb.from("tutores").delete().eq("id", id).select("id")),
+
+  excluirPet: (sb: Sb, _ps: string, id: string) => ok(sb.from("pets").delete().eq("id", id).select("id")),
+
+  pacote: (sb: Sb, ps: string, m: PlanoModelo, novo: boolean) => {
+    const linha = { nome: m.nome, servico_ids: m.servicoIds, quantidade_usos: m.quantidadeUsos, validade_dias: m.validadeDias, preco: m.preco, ativo: m.ativo };
+    return novo ? ok(sb.from("planos_modelo").insert({ id: m.id, petshop_id: ps, ...linha })) : ok(sb.from("planos_modelo").update(linha).eq("id", m.id).select("id"));
+  },
+
+  /** Cancela o plano; agendamentos que ele cobriria passam a ser cobrados; devolução vira despesa. */
+  cancelarPlano: async (sb: Sb, ps: string, p: PlanoPet, afetados: Atendimento[], despesa?: Lancamento) => {
+    await ok(sb.from("planos_pet").update({ status: "cancelado", observacoes: p.observacoes ?? null }).eq("id", p.id).select("id"));
+    for (const a of afetados) {
+      await ok(sb.from("atendimento_itens").update({ coberto_por_plano: false }).eq("atendimento_id", a.id));
+      await ok(sb.from("atendimentos").update({ plano_pet_id: null, valor_total: a.valorTotal }).eq("id", a.id));
+    }
+    if (despesa) await remoto.lancamento(sb, ps, despesa);
+  },
+
+  planoObs: (sb: Sb, _ps: string, id: string, observacoes?: string) => ok(sb.from("planos_pet").update({ observacoes: observacoes ?? null }).eq("id", id)),
+
+  /** Reagenda e/ou troca serviços: itens novos entram antes de os antigos saírem (nada se perde se der erro). */
+  editarAtendimento: async (sb: Sb, ps: string, a: Atendimento, itensMudaram: boolean) => {
+    const inicio = isoNoFuso(a.data, a.hora);
+    const fim = new Date(Date.parse(inicio) + a.duracaoMin * 60000).toISOString();
+    let antigos: Linha[] = [];
+    if (itensMudaram) {
+      antigos = (await ok(sb.from("atendimento_itens").select("id").eq("atendimento_id", a.id))) as Linha[];
+      await ok(
+        sb.from("atendimento_itens").insert(
+          a.itens.map((i) => ({ petshop_id: ps, atendimento_id: a.id, servico_id: i.servicoId, nome: i.nome, preco: i.preco, duracao_min: i.duracaoMin, coberto_por_plano: i.cobertoPorPlano })),
+        ),
+      );
+    }
+    await ok(
+      sb
+        .from("atendimentos")
+        .update({
+          inicio,
+          fim,
+          profissional_id: a.profissionalId,
+          valor_total: a.valorTotal,
+          desconto: a.desconto,
+          plano_pet_id: a.planoPetId ?? null,
+          observacoes: a.observacoes ?? null,
+        })
+        .eq("id", a.id)
+        .select("id"),
+    );
+    if (antigos.length) await ok(sb.from("atendimento_itens").delete().in("id", antigos.map((x) => x.id as string)));
+  },
+
+  sinal: async (sb: Sb, ps: string, atendimentoId: string, l: Lancamento) => {
+    await remoto.lancamento(sb, ps, l);
+    await ok(sb.from("atendimentos").update({ sinal_pago: true }).eq("id", atendimentoId));
+  },
+
+  estornarPagamento: async (sb: Sb, _ps: string, l: Lancamento) => {
+    await ok(sb.from("lancamentos").update({ status: "pendente", pago_em: null, forma_pagamento: null }).eq("id", l.id).select("id"));
+    if (l.atendimentoId) await ok(sb.from("atendimentos").update({ pago: false }).eq("id", l.atendimentoId));
+  },
+
+  excluirLancamento: (sb: Sb, _ps: string, id: string) => ok(sb.from("lancamentos").delete().eq("id", id).select("id")),
+
+  modeloEditar: (sb: Sb, _ps: string, m: MensagemModelo) =>
+    ok(sb.from("mensagem_modelos").update({ titulo: m.titulo, texto: m.texto, ativo: m.ativo }).eq("id", m.id).select("id")),
+
+  removerEtapa: async (sb: Sb, _ps: string, e: AtendimentoEtapa, soFoto: boolean) => {
+    if (soFoto) await ok(sb.from("atendimento_etapas").update({ foto_path: null }).eq("id", e.id));
+    else await ok(sb.from("atendimento_etapas").delete().eq("id", e.id));
+    const path = caminhoDaUrl(e.fotoUrl);
+    if (path) await apagarFoto(sb, path).catch(() => undefined); // a foto órfã não atrapalha
+  },
+
+  produto: (sb: Sb, ps: string, p: Produto, novo: boolean) => {
+    const linha = { nome: p.nome, categoria: p.categoria, preco_venda: p.precoVenda, custo: p.custo ?? null, estoque_minimo: p.estoqueMinimo, unidade: p.unidade, ativo: p.ativo };
+    return novo ? ok(sb.from("produtos").insert({ id: p.id, petshop_id: ps, ...linha })) : ok(sb.from("produtos").update(linha).eq("id", p.id).select("id"));
+  },
+
+  /** Entrada, ajuste ou estoque inicial (com a despesa da compra, se houver), numa transação. */
+  movimento: (sb: Sb, ps: string, m: MovimentoEstoque, despesa?: Lancamento) =>
+    ok(
+      sb.rpc("registrar_entrada_estoque", {
+        p_mov: { id: m.id, petshop_id: ps, produto_id: m.produtoId, tipo: m.tipo, quantidade: m.quantidade, custo_unitario: m.custoUnitario ?? null, observacao: m.observacao ?? null },
+        p_despesa: despesa ? linhaLancamento(ps, despesa) : null,
+      }),
+    ),
+
+  venda: (sb: Sb, ps: string, v: Venda, l?: Lancamento) =>
+    ok(
+      sb.rpc("registrar_venda", {
+        p_venda: { id: v.id, petshop_id: ps, tutor_id: v.tutorId ?? null, atendimento_id: v.atendimentoId ?? null, total: v.total, desconto: v.desconto, status: v.status, forma_pagamento: v.formaPagamento ?? null },
+        p_itens: v.itens.map((i) => ({ produto_id: i.produtoId ?? null, nome: i.nome, quantidade: i.quantidade, preco: i.preco })),
+        p_lancamento: l ? linhaLancamento(ps, l) : null,
+      }),
+    ),
+
+  cancelarVenda: async (sb: Sb, ps: string, v: Venda, estornos: MovimentoEstoque[], removerLancamento?: string, despesa?: Lancamento) => {
+    await ok(sb.from("vendas").update({ status: "cancelada" }).eq("id", v.id).select("id"));
+    if (estornos.length)
+      await ok(
+        sb.from("estoque_movimentos").insert(
+          estornos.map((m) => ({ id: m.id, petshop_id: ps, produto_id: m.produtoId, tipo: "estorno", quantidade: m.quantidade, venda_id: v.id, observacao: m.observacao ?? null })),
+        ),
+      );
+    if (removerLancamento) await ok(sb.from("lancamentos").delete().eq("id", removerLancamento));
+    if (despesa) await remoto.lancamento(sb, ps, despesa);
+  },
+
+  vacina: (sb: Sb, ps: string, v: Vacina, novo: boolean) => {
+    const linha = { pet_id: v.petId, tipo: v.tipo, nome: v.nome, aplicada_em: v.aplicadaEm ?? null, proxima_em: v.proximaEm ?? null, observacao: v.observacao ?? null };
+    return novo ? ok(sb.from("pet_vacinas").insert({ id: v.id, petshop_id: ps, ...linha })) : ok(sb.from("pet_vacinas").update(linha).eq("id", v.id).select("id"));
+  },
+
+  excluirVacina: (sb: Sb, _ps: string, id: string) => ok(sb.from("pet_vacinas").delete().eq("id", id)),
+
+  resgate: async (sb: Sb, ps: string, r: ResgateFidelidade, a: Atendimento) => {
+    await ok(sb.from("fidelidade_resgates").insert({ id: r.id, petshop_id: ps, pet_id: r.petId, atendimento_id: r.atendimentoId ?? null, valor: r.valor, em: r.em }));
+    await ok(sb.from("atendimentos").update({ desconto: a.desconto, valor_total: a.valorTotal }).eq("id", a.id));
+  },
+
+  desfazerResgate: async (sb: Sb, _ps: string, a: Atendimento) => {
+    await ok(sb.from("fidelidade_resgates").delete().eq("atendimento_id", a.id));
+    await ok(sb.from("atendimentos").update({ desconto: a.desconto, valor_total: a.valorTotal }).eq("id", a.id));
+  },
+
+  /** Cancelou ou faltou: o prêmio de fidelidade usado volta para o cartão. */
+  liberarResgate: (sb: Sb, _ps: string, atendimentoId: string) => ok(sb.from("fidelidade_resgates").delete().eq("atendimento_id", atendimentoId)),
 };
+
+function linhaLancamento(ps: string, l: Lancamento): Linha {
+  return {
+    id: l.id,
+    petshop_id: ps,
+    tipo: l.tipo,
+    categoria: l.categoria,
+    descricao: l.descricao,
+    valor: l.valor,
+    forma_pagamento: l.formaPagamento ?? null,
+    status: l.status,
+    competencia: l.competencia,
+    pago_em: l.pagoEm ?? null,
+    atendimento_id: l.atendimentoId ?? null,
+    plano_pet_id: l.planoPetId ?? null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Convites da equipe

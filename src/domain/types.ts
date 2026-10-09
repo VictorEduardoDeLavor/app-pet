@@ -41,7 +41,8 @@ export type GatilhoMensagem =
   | "pet_pronto"
   | "feedback"
   | "renovacao_plano"
-  | "cliente_sumido";
+  | "cliente_sumido"
+  | "vacina";
 
 export interface Petshop {
   id: string;
@@ -54,6 +55,20 @@ export interface Petshop {
   fecha: string; // "18:00"
   faltaConsomeUso: boolean;
   diasClienteSumido: number;
+  endereco?: string;
+  /** Página pública /agendar/{slug} ligada. */
+  agendamentoOnline: boolean;
+  /** Chave Pix para o sinal do agendamento online (CPF/CNPJ, celular, e-mail ou aleatória). */
+  pixChave?: string;
+  pixCidade?: string;
+  /** % do total pedido como sinal no agendamento online (0 = sem sinal). */
+  sinalPct: number;
+  /** Cartão fidelidade: a cada N atendimentos que contam, um prêmio. */
+  fidelidadeAtiva: boolean;
+  fidelidadeMeta: number;
+  /** Serviços que contam selo. Vazio = banho e tosa. */
+  fidelidadeServicoIds: string[];
+  fidelidadePremio: string;
 }
 
 export interface Membro {
@@ -61,6 +76,8 @@ export interface Membro {
   nome: string;
   papel: Papel;
   comissaoPct: number;
+  /** Não recebe comissão (ex.: o dono que também atende). */
+  semComissao?: boolean;
   ativo: boolean;
   /** Já entra no app com login próprio. */
   temConta?: boolean;
@@ -86,6 +103,7 @@ export interface Pet {
   raca: string;
   porte: Porte;
   sexo?: "M" | "F";
+  nascimento?: string; // YYYY-MM-DD
   pesoKg?: number;
   pelagem?: string;
   temperamento?: string;
@@ -167,6 +185,9 @@ export interface Atendimento {
   transporte: Transporte;
   enderecoTransporte?: string;
   motoristaId?: string;
+  /** Sinal pedido no agendamento online e se a equipe já conferiu o Pix. */
+  sinalValor?: number;
+  sinalPago?: boolean;
 }
 
 /** Pagamento de comissões a uma pessoa da equipe, fechando um período. */
@@ -188,6 +209,7 @@ export interface PlanoModelo {
   quantidadeUsos: number;
   validadeDias: number;
   preco: number;
+  ativo: boolean;
 }
 
 export interface PlanoPet {
@@ -256,6 +278,84 @@ export interface MensagemEnvio {
   enviadoEm: string; // ISO
 }
 
+// ---------------------------------------------------------------------------
+// Produtos e estoque
+// ---------------------------------------------------------------------------
+
+export interface Produto {
+  id: string;
+  nome: string;
+  categoria: string;
+  precoVenda: number;
+  custo?: number;
+  /** Saldo atual (soma dos movimentos). */
+  estoque: number;
+  estoqueMinimo: number;
+  unidade: string; // un, kg, L, pct
+  ativo: boolean;
+  criadoEm: string; // ISO
+}
+
+export type TipoMovimento = "entrada" | "venda" | "ajuste" | "estorno";
+
+export interface MovimentoEstoque {
+  id: string;
+  produtoId: string;
+  tipo: TipoMovimento;
+  /** Positivo entra, negativo sai. */
+  quantidade: number;
+  custoUnitario?: number;
+  vendaId?: string;
+  observacao?: string;
+  porMembroId?: string;
+  em: string; // ISO
+}
+
+export interface VendaItem {
+  produtoId?: string;
+  nome: string;
+  quantidade: number;
+  preco: number; // unitário
+}
+
+export interface Venda {
+  id: string;
+  tutorId?: string;
+  atendimentoId?: string;
+  itens: VendaItem[];
+  total: number; // já com desconto
+  desconto: number;
+  status: "pago" | "pendente" | "cancelada";
+  formaPagamento?: FormaPagamento;
+  porMembroId?: string;
+  lancamentoId?: string;
+  criadoEm: string; // ISO
+}
+
+// ---------------------------------------------------------------------------
+// Carteira de saúde e fidelidade
+// ---------------------------------------------------------------------------
+
+export type TipoVacina = "vacina" | "vermifugo" | "antipulgas" | "outro";
+
+export interface Vacina {
+  id: string;
+  petId: string;
+  tipo: TipoVacina;
+  nome: string;
+  aplicadaEm?: string; // YYYY-MM-DD
+  proximaEm?: string; // YYYY-MM-DD
+  observacao?: string;
+}
+
+export interface ResgateFidelidade {
+  id: string;
+  petId: string;
+  atendimentoId?: string;
+  valor: number;
+  em: string; // ISO
+}
+
 export interface Db {
   petshop: Petshop;
   usuarioAtualId: string;
@@ -275,4 +375,9 @@ export interface Db {
   /** Última posição por atendimento com leva e traz em andamento. */
   posicoes: Posicao[];
   acertos: ComissaoAcerto[];
+  produtos: Produto[];
+  movimentos: MovimentoEstoque[];
+  vendas: Venda[];
+  vacinas: Vacina[];
+  resgates: ResgateFidelidade[];
 }

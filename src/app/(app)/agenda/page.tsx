@@ -3,14 +3,17 @@
 import Link from "next/link";
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, ChevronLeft, ChevronRight, Funnel, Plus } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Funnel, Globe, Plus } from "lucide-react";
 import { useDb } from "@/data/store";
 import type { Atendimento, StatusAtendimento } from "@/domain/types";
 import { NOME_STATUS, atendimentosDoDia, petshopAberto, porId } from "@/domain/rules";
 import { dataLonga, diaCurto, duracao, hoje, inicioSemana, minutos, moeda, pad, parseData, somaDias } from "@/domain/format";
 import { Chip, Filtros, PetAvatar, Segmentado, StatusChip, Titulo, Vazio, cx } from "@/components/ui";
 
-type Filtro = "todos" | StatusAtendimento;
+type Filtro = "todos" | "online" | StatusAtendimento;
+
+const passa = (a: Atendimento, filtro: Filtro) =>
+  filtro === "todos" ? a.status !== "cancelado" : filtro === "online" ? a.origem === "portal" && a.status !== "cancelado" : a.status === filtro;
 
 export default function AgendaPagina() {
   return (
@@ -26,20 +29,20 @@ function Agenda() {
   const params = useSearchParams();
   const T = hoje();
   const data = params.get("data") ?? T;
-  const [modo, setModo] = useState<"dia" | "semana">("dia");
+  const [modo, setModo] = useState<"dia" | "semana">(params.get("status") === "online" ? "semana" : "dia");
   const [filtro, setFiltro] = useState<Filtro>((params.get("status") as Filtro) ?? "todos");
   const [mostrarFiltro, setMostrarFiltro] = useState(params.has("status"));
 
   const irPara = (d: string) => router.replace(d === T ? "/agenda" : `/agenda?data=${d}`, { scroll: false });
   const semana = useMemo(() => {
     const seg = inicioSemana(data);
-    return Array.from({ length: 6 }, (_, i) => somaDias(seg, i));
+    return Array.from({ length: 7 }, (_, i) => somaDias(seg, i));
   }, [data]);
 
   const doDia = atendimentosDoDia(db, data);
-  const filtrados = doDia.filter((a) => (filtro === "todos" ? a.status !== "cancelado" : a.status === filtro));
+  const filtrados = doDia.filter((a) => passa(a, filtro));
 
-  const contagem = (s: Filtro) => (s === "todos" ? doDia.filter((a) => a.status !== "cancelado").length : doDia.filter((a) => a.status === s).length);
+  const contagem = (s: Filtro) => doDia.filter((a) => passa(a, s)).length;
 
   return (
     <div>
@@ -70,9 +73,9 @@ function Agenda() {
           <Filtros
             valor={filtro}
             onChange={setFiltro}
-            opcoes={(["todos", "agendado", "confirmado", "em_atendimento", "finalizado", "cancelado", "faltou"] as Filtro[]).map((s) => ({
+            opcoes={(["todos", "online", "agendado", "confirmado", "em_atendimento", "finalizado", "cancelado", "faltou"] as Filtro[]).map((s) => ({
               valor: s,
-              rotulo: s === "todos" ? "Todos" : NOME_STATUS[s],
+              rotulo: s === "todos" ? "Todos" : s === "online" ? "Online" : NOME_STATUS[s],
               contagem: contagem(s),
             }))}
           />
@@ -83,16 +86,17 @@ function Agenda() {
         <button aria-label="Semana anterior" onClick={() => irPara(somaDias(data, -7))} className="tap grid h-10 w-9 place-items-center text-muted">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <div className="grid flex-1 grid-cols-6">
+        <div className="grid flex-1 grid-cols-7">
           {semana.map((d) => {
             const sel = d === data;
+            const fechado = !petshopAberto(db, d);
             const qtd = atendimentosDoDia(db, d).filter((a) => a.status !== "cancelado").length;
             return (
-              <button key={d} onClick={() => irPara(d)} className="tap flex flex-col items-center gap-1 py-1">
+              <button key={d} onClick={() => irPara(d)} className={cx("tap flex flex-col items-center gap-1 py-1", fechado && !sel && "opacity-45")}>
                 <span className={cx("text-[12.5px]", sel ? "font-semibold text-brand-600" : "text-muted")}>{diaCurto(d)}</span>
                 <span
                   className={cx(
-                    "grid h-10 w-10 place-items-center rounded-full text-[16px] font-semibold",
+                    "grid h-10 w-10 place-items-center rounded-full text-[15px] font-semibold",
                     sel ? "bg-brand-600 text-white shadow-[var(--shadow-float)]" : d === T ? "text-brand-600 ring-1 ring-brand-300" : "text-ink",
                   )}
                 >
@@ -187,9 +191,19 @@ function CartaoAtendimento({ a, compacto = false }: { a: Atendimento; compacto?:
             {compacto && <span className="mr-1.5 tabular-nums text-muted">{a.hora}</span>}
             {pet.nome}
           </p>
-          <StatusChip status={a.status} />
+          <span className="flex shrink-0 items-center gap-1">
+            {a.origem === "portal" && (
+              <span title="Agendado pela página online" className="grid h-6 w-6 place-items-center rounded-full bg-info-50 text-info-600">
+                <Globe className="h-3.5 w-3.5" />
+              </span>
+            )}
+            <StatusChip status={a.status} />
+          </span>
         </div>
-        <p className="truncate text-[13px] text-muted">{tutor?.nome}</p>
+        <p className="truncate text-[13px] text-muted">
+          {tutor?.nome}
+          {a.origem === "portal" && a.status === "agendado" && <span className="font-medium text-info-600"> · pedido online: confirme</span>}
+        </p>
         <div className="mt-0.5 flex items-end justify-between gap-2">
           <p className="truncate text-[13px] text-muted">
             {a.itens.map((i) => i.nome).join(" + ")} · {duracao(a.duracaoMin)}
@@ -211,7 +225,9 @@ function VisaoSemana({ dias, filtro }: { dias: string[]; filtro: Filtro }) {
   return (
     <div className="space-y-5 px-5 pb-24 pt-2">
       {dias.map((d) => {
-        const lista = atendimentosDoDia(db, d).filter((a) => (filtro === "todos" ? a.status !== "cancelado" : a.status === filtro));
+        const lista = atendimentosDoDia(db, d).filter((a) => passa(a, filtro));
+        // Dia fechado sem nada marcado não ocupa espaço na semana.
+        if (!petshopAberto(db, d) && lista.length === 0) return null;
         return (
           <section key={d}>
             <div className="mb-2 flex items-baseline justify-between">

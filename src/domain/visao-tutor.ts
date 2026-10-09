@@ -4,6 +4,7 @@ import type { Db, Especie, Etapa, StatusAtendimento, Transporte } from "./types"
 import { emRota, etapasDoAtendimento, porId, posicaoDoAtendimento } from "./rules";
 import { montarLinhaDoTempo, type ItemLinha } from "./linha-tempo";
 import { dataLonga } from "./format";
+import { cartao } from "./fidelidade";
 
 export interface VisaoTutor {
   petshop: { nome: string; whatsapp?: string; fuso?: string };
@@ -17,7 +18,13 @@ export interface VisaoTutor {
     transporte: Transporte;
     endereco?: string;
     motorista?: string;
+    /** Agendado pela página online, com o sinal pedido e se a equipe já conferiu. */
+    online?: boolean;
+    sinal?: number;
+    sinalPago?: boolean;
   };
+  /** Cartão fidelidade do pet (quando o pet shop usa). */
+  fidelidade?: { meta: number; selos: number; premio: string };
   eventos: { para: StatusAtendimento; em: string }[];
   etapas: { id: string; etapa: Etapa; nota?: string; fotoUrl?: string; em: string }[];
   emRota: boolean;
@@ -43,7 +50,11 @@ export function visaoDoDb(db: Db, token: string): VisaoTutor | null {
       transporte: a.transporte,
       endereco: a.enderecoTransporte,
       motorista: porId(db.membros, a.motoristaId)?.nome,
+      online: a.origem === "portal",
+      sinal: a.sinalValor,
+      sinalPago: a.sinalPago,
     },
+    fidelidade: db.petshop.fidelidadeAtiva ? (({ meta, selos, premio }) => ({ meta, selos, premio }))(cartao(db, a.petId)) : undefined,
     eventos: a.eventos.map((e) => ({ para: e.para, em: e.em })),
     etapas: etapasDoAtendimento(db, a.id).map((e) => ({ id: e.id, etapa: e.etapa, nota: e.nota, fotoUrl: e.fotoUrl, em: e.em })),
     emRota: rota,

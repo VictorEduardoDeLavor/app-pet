@@ -128,9 +128,14 @@ export function venderPlano(db: Db, input: VendaPlanoInput, agora: Date): { db: 
   const pet = porId(db.pets, input.petId);
   if (!modelo) throw new ErroRegra("Escolha um modelo de plano.");
   if (!pet) throw new ErroRegra("Escolha o pet.");
+  if (modelo.ativo === false) throw new ErroRegra("Este pacote está desativado.");
   if (planoAtivoDoPet(db, pet.id, input.inicio))
     throw new ErroRegra(`${pet.nome} já tem um plano ativo.`);
   if (!(input.preco > 0)) throw new ErroRegra("Informe o preço do plano.");
+  // Plano antigo vencido ou sem saldo deixa de constar como "ativo" (o banco faz o mesmo ao vender).
+  const planosAntes = db.planosPet.map((p) =>
+    p.petId === pet.id && p.status === "ativo" ? { ...p, status: statusEfetivoPlano(db, p, input.inicio) } : p,
+  );
 
   const plano: PlanoPet = {
     id: uid(),
@@ -160,7 +165,7 @@ export function venderPlano(db: Db, input: VendaPlanoInput, agora: Date): { db: 
     planoPetId: plano.id,
   };
   return {
-    db: { ...db, planosPet: [...db.planosPet, plano], lancamentos: [...db.lancamentos, receita] },
+    db: { ...db, planosPet: [...planosAntes, plano], lancamentos: [...db.lancamentos, receita] },
     plano,
   };
 }
@@ -240,6 +245,8 @@ export interface NovoAtendimentoInput {
   transporte?: Transporte;
   enderecoTransporte?: string;
   motoristaId?: string;
+  /** Sinal pedido no agendamento online. */
+  sinalValor?: number;
 }
 
 export function criarAtendimento(
@@ -290,6 +297,8 @@ export function criarAtendimento(
     transporte,
     enderecoTransporte: transporte === "nenhum" ? undefined : enderecoTransporte,
     motoristaId: transporte === "nenhum" ? undefined : input.motoristaId,
+    sinalValor: input.sinalValor && input.sinalValor > 0 ? input.sinalValor : undefined,
+    sinalPago: input.sinalValor && input.sinalValor > 0 ? false : undefined,
   };
   return { db: { ...db, atendimentos: [...db.atendimentos, atendimento] }, atendimento };
 }
@@ -376,15 +385,22 @@ export function mudarStatus(
     }
   }
 
+  if (para === "cancelado" || para === "faltou") {
+    // O prêmio de fidelidade usado neste atendimento volta para o cartão do pet.
+    novo = { ...novo, resgates: novo.resgates.filter((r) => r.atendimentoId !== atd.id) };
+  }
+
   if (para === "finalizado") {
-    if (atualizado.valorTotal > 0) {
+    // O sinal pago no agendamento online já entrou no caixa: fica a receber só a diferença.
+    const aReceber = Math.max(0, Math.round((atualizado.valorTotal - (atd.sinalPago ? atd.sinalValor ?? 0 : 0)) * 100) / 100);
+    if (aReceber > 0) {
       const pet = porId(db.pets, atd.petId);
       const receita: Lancamento = {
         id: uid(),
         tipo: "receita",
         categoria: "Serviços",
         descricao: `${pet?.nome ?? "Pet"} · ${atualizado.itens.map((i) => i.nome).join(" + ")}`,
-        valor: atualizado.valorTotal,
+        valor: aReceber,
         status: "pendente",
         competencia: atd.data,
         criadoEm: agora.toISOString(),
@@ -427,9 +443,10 @@ export function pagarLancamento(db: Db, lancamentoId: string, forma: FormaPagame
     lancamentos: db.lancamentos.map((l) =>
       l.id === lancamentoId ? { ...l, status: "pago", formaPagamento: forma, pagoEm: agora.toISOString() } : l,
     ),
-    atendimentos: lanc.atendimentoId
+    atendimentos: lanc.atendimentoId && lanc.categoria !== "Sinal"
       ? db.atendimentos.map((a) => (a.id === lanc.atendimentoId ? { ...a, pago: true } : a))
       : db.atendimentos,
+    vendas: db.vendas.map((v) => (v.lancamentoId === lancamentoId && v.status === "pendente" ? { ...v, status: "pago", formaPagamento: forma } : v)),
   };
 }
 
@@ -622,7 +639,9 @@ export function filaDoProfissional(db: Db, membroId: string, data: string): Fila
 
 /** % de comissão de um item: a da pessoa, quando definida; senão a do serviço (tabela de Serviços). */
 export function pctComissao(db: Db, membroId: string, servicoId: string): number {
-  const proprio = porId(db.membros, membroId)?.comissaoPct ?? 0;
+  const membro = porId(db.membros, membroId);
+  if (membro?.semComissao) return 0;
+  const proprio = membro?.comissaoPct ?? 0;
   return proprio > 0 ? proprio : (porId(db.servicos, servicoId)?.comissaoPct ?? 0);
 }
 
@@ -657,7 +676,7 @@ export function inicioDoAtendimento(atd: Atendimento): string | undefined {
 export function prontosParaAvisar(db: Db, data: string): Atendimento[] {
   const modelosPronto = new Set(db.mensagemModelos.filter((m) => m.gatilho === "pet_pronto").map((m) => m.id));
   const avisados = new Set(db.mensagensEnvios.filter((e) => e.atendimentoId && modelosPronto.has(e.modeloId)).map((e) => e.atendimentoId));
-  const pagos = new Set(db.lancamentos.filter((l) => l.atendimentoId && l.status === "pago").map((l) => l.atendimentoId));
+  const pagos = new Set(db.lancamentos.filter((l) => l.atendimentoId && l.status === "pago" && l.categoria !== "Sinal").map((l) => l.atendimentoId));
   return atendimentosDoDia(db, data).filter(
     (a) => a.status === "finalizado" && !avisados.has(a.id) && !pagos.has(a.id) && a.transporte !== "entrega" && a.transporte !== "busca_e_entrega",
   );

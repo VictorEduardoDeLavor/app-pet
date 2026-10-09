@@ -101,9 +101,9 @@ export function moeda(valor: number): string {
   return brl.format(valor).replace(/ /g, " ");
 }
 
-/** R$ 360 (sem centavos quando inteiro) */
+/** R$ 360 (sem centavos quando inteiro); R$ 801,40 quando tem centavos. */
 export function moedaCurta(valor: number): string {
-  return brlCurto.format(valor).replace(/ /g, " ");
+  return (Math.abs(Math.round(valor * 100) % 100) === 0 ? brlCurto : brl).format(valor).replace(/ /g, " ");
 }
 
 /** "1h", "45 min", "1h30" */
@@ -160,3 +160,10 @@ export const NOME_PORTE: Record<string, string> = {
   G: "Porte G",
   GG: "Porte GG",
 };
+
+/** Lê um valor digitado ("1.234,50", "35,5", "35.5", "R$ 40") como número; vazio ou inválido = NaN. */
+export function lerNumero(v: string): number {
+  const t = v.trim().replace(/[R$\s]/g, "");
+  if (!t) return NaN;
+  return Number(t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t);
+}

@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import { CalendarPlus, Camera, LoaderCircle, PawPrint, Pencil, TriangleAlert, User } from "lucide-react";
+import { CalendarPlus, Camera, LoaderCircle, PawPrint, Pencil, TriangleAlert, User, X } from "lucide-react";
 import { useApp, useDb, usePapel } from "@/data/store";
 import { useToast } from "@/components/providers";
 import { pode } from "@/domain/permissoes";
 import { planoAtivoDoPet, porId, saldoPlano, usosDoPlano } from "@/domain/rules";
 import { NOME_PORTE, dataCurta, diferencaDias, hoje, moeda } from "@/domain/format";
 import { Aviso, BotaoLink, Chip, PetAvatar, Progresso, Secao, StatusChip, TituloVoltar, Vazio } from "@/components/ui";
-import { EditarPetFolha } from "@/components/pet-form";
+import { EditarPetFolha, idade } from "@/components/pet-form";
+import { CarteiraSaude } from "@/components/vacinas";
+import { CartaoSelos } from "@/components/fidelidade";
+import { cartao } from "@/domain/fidelidade";
 
 export default function PetDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +24,7 @@ export default function PetDetalhe() {
   const [enviandoFoto, setEnviandoFoto] = useState(false);
   const salvarFoto = useApp((s) => s.salvarFotoPet);
   const toast = useToast();
+  const router = useRouter();
   const pet = porId(db.pets, id);
 
   if (!pet) {
@@ -38,6 +42,7 @@ export default function PetDetalhe() {
   const ficha: [string, string | undefined][] = [
     ["Espécie", pet.especie === "gato" ? "Gato" : "Cão"],
     ["Sexo", pet.sexo === "F" ? "Fêmea" : pet.sexo === "M" ? "Macho" : undefined],
+    ["Idade", pet.nascimento ? `${idade(pet.nascimento)} · nasceu ${dataCurta(pet.nascimento)}` : undefined],
     ["Peso", pet.pesoKg ? `${String(pet.pesoKg).replace(".", ",")} kg` : undefined],
     ["Pelagem", pet.pelagem],
     ["Temperamento", pet.temperamento],
@@ -90,6 +95,20 @@ export default function PetDetalhe() {
             />
           </label>
         </span>
+        {pet.fotoUrl && !enviandoFoto && (
+          <button
+            onClick={async () => {
+              setEnviandoFoto(true);
+              const r = await salvarFoto(pet.id, null);
+              setEnviandoFoto(false);
+              toast(r.ok ? "Foto removida" : r.erro, r.ok ? "ok" : "erro");
+            }}
+            className="mt-2 flex items-center gap-1 text-[12.5px] font-medium text-muted hover:text-bad-700"
+          >
+            <X className="h-3.5 w-3.5" />
+            Remover foto
+          </button>
+        )}
         <h2 className="mt-3 text-[24px] font-bold tracking-tight">{pet.nome}</h2>
         <p className="text-[14px] text-muted">
           {pet.raca} · {NOME_PORTE[pet.porte]}
@@ -124,6 +143,17 @@ export default function PetDetalhe() {
             </div>
           ))}
       </dl>
+
+      {db.petshop.fidelidadeAtiva && (
+        <div className="mx-5 mt-4">
+          {(() => {
+            const c = cartao(db, pet.id);
+            return <CartaoSelos meta={c.meta} selos={c.selos} premio={c.premio} nomePet={pet.nome} />;
+          })()}
+        </div>
+      )}
+
+      <CarteiraSaude petId={pet.id} podeAvisar={pode(papel, "mensagens")} />
 
       <Secao className="mt-6" titulo="Plano">
         {plano ? (
@@ -180,7 +210,12 @@ export default function PetDetalhe() {
         </div>
       )}
 
-      <EditarPetFolha aberta={editando} onFechar={() => setEditando(false)} pet={pet} />
+      <EditarPetFolha
+        aberta={editando}
+        onFechar={() => setEditando(false)}
+        pet={pet}
+        aoExcluir={pode(papel, "clientes") ? () => router.replace(tutor ? `/clientes/${tutor.id}` : "/clientes") : undefined}
+      />
     </div>
   );
 }

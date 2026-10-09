@@ -5,6 +5,7 @@ import { Check, Pencil, RotateCcw, Send } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { GatilhoMensagem, MensagemModelo, Pet, Tutor } from "@/domain/types";
 import { VARIAVEIS, modeloPorGatilho } from "@/domain/messages";
+import { lembreteEnviado, textoVencimento, vacinasVencendo } from "@/domain/vacinas";
 import { atendimentosDoDia, clientesSumidos, planosAVencer, porId, saldoPlano } from "@/domain/rules";
 import { dataDoIso, hoje, somaDias } from "@/domain/format";
 import { Botao, Chip, Folha, PetAvatar, Secao, Titulo, Vazio, cx } from "@/components/ui";
@@ -17,6 +18,7 @@ interface Sugestao {
   tutor: Tutor;
   pet: Pet;
   atendimentoId?: string;
+  vacinaId?: string;
   contexto: string;
   enviado: boolean;
 }
@@ -28,6 +30,7 @@ const GRUPOS: { gatilho: GatilhoMensagem; titulo: string }[] = [
   { gatilho: "lembrete", titulo: "Lembrete de amanhã" },
   { gatilho: "feedback", titulo: "Feedback de ontem" },
   { gatilho: "renovacao_plano", titulo: "Renovar plano" },
+  { gatilho: "vacina", titulo: "Vacinas vencendo" },
   { gatilho: "cliente_sumido", titulo: "Clientes sumidos" },
 ];
 
@@ -38,6 +41,7 @@ export default function Mensagens() {
   const T = hoje();
   const [zap, setZap] = useState<Sugestao | null>(null);
   const [editando, setEditando] = useState<MensagemModelo | null>(null);
+  const [restaurando, setRestaurando] = useState(false);
 
   const sugestoes = useMemo(() => {
     const enviadoHoje = (gatilho: GatilhoMensagem, tutorId: string, atendimentoId?: string) => {
@@ -47,11 +51,13 @@ export default function Mensagens() {
       );
     };
     const lista: Sugestao[] = [];
-    const add = (gatilho: GatilhoMensagem, tutorId: string, petId: string, contexto: string, atendimentoId?: string) => {
+    const add = (gatilho: GatilhoMensagem, tutorId: string, petId: string, contexto: string, atendimentoId?: string, vacinaId?: string) => {
       const tutor = porId(db.tutores, tutorId);
       const pet = porId(db.pets, petId);
       if (!tutor || !pet || !tutor.consentimentoWhatsapp) return;
-      lista.push({ chave: `${gatilho}-${atendimentoId ?? petId}`, gatilho, tutor, pet, atendimentoId, contexto, enviado: enviadoHoje(gatilho, tutorId, atendimentoId) });
+      // Modelo desligado em "Modelos de mensagem" não gera sugestão.
+      if (modeloPorGatilho(db, gatilho)?.ativo === false) return;
+      lista.push({ chave: `${gatilho}-${vacinaId ?? atendimentoId ?? petId}`, gatilho, tutor, pet, atendimentoId, vacinaId, contexto, enviado: enviadoHoje(gatilho, tutorId, atendimentoId) });
     };
     for (const a of atendimentosDoDia(db, T)) {
       // Link para o tutor acompanhar as fotos (e o carro): de quem está no pet shop ou a caminho hoje.
@@ -69,6 +75,11 @@ export default function Mensagens() {
     }
     for (const p of planosAVencer(db, T)) add("renovacao_plano", p.tutorId, p.petId, `${saldoPlano(db, p.id)} de ${p.totalUsos} restantes`);
     for (const c of clientesSumidos(db, T)) add("cliente_sumido", c.tutor.id, c.pets[0].id, `${c.dias} dias sem visita`);
+    for (const v of vacinasVencendo(db, T)) {
+      const pet = porId(db.pets, v.petId);
+      if (!pet || lembreteEnviado(db, v)) continue;
+      add("vacina", pet.tutorId, pet.id, `${v.nome} · ${v.proximaEm! < T ? "venceu" : "vence"} ${textoVencimento(v.proximaEm!, T)}`, undefined, v.id);
+    }
     return lista;
   }, [db, T]);
 
@@ -125,13 +136,7 @@ export default function Mensagens() {
         className="mt-8"
         titulo="Modelos de mensagem"
         acao={
-          <button
-            onClick={() => {
-              restaurar();
-              toast("Modelos restaurados");
-            }}
-            className="flex items-center gap-1 text-[13.5px] font-medium text-brand-600"
-          >
+          <button onClick={() => setRestaurando(true)} className="flex items-center gap-1 text-[13.5px] font-medium text-brand-600">
             <RotateCcw className="h-3.5 w-3.5" />
             Restaurar padrões
           </button>
@@ -141,8 +146,11 @@ export default function Mensagens() {
           {db.mensagemModelos.map((m) => (
             <li key={m.id}>
               <button onClick={() => setEditando(m)} className="tap card flex w-full items-start gap-3 px-4 py-3.5 text-left">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14.5px] font-semibold">{m.titulo}</p>
+                <div className={cx("min-w-0 flex-1", !m.ativo && "opacity-60")}>
+                  <p className="flex items-center gap-2 text-[14.5px] font-semibold">
+                    {m.titulo}
+                    {!m.ativo && <Chip tom="neutral">Desligado</Chip>}
+                  </p>
                   <p className="mt-0.5 line-clamp-2 text-[13px] text-muted">{m.texto}</p>
                 </div>
                 <Pencil className="mt-1 h-4 w-4 shrink-0 text-subtle" />
@@ -150,24 +158,44 @@ export default function Mensagens() {
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-[12.5px] text-subtle">Na versão 2, estes modelos disparam sozinhos pelo WhatsApp nos gatilhos certos.</p>
+        <p className="mt-3 text-[12.5px] text-subtle">Desligue um modelo para ele não aparecer nas sugestões do dia.</p>
       </Secao>
 
-      {zap && <WhatsappFolha aberta onFechar={() => setZap(null)} tutorId={zap.tutor.id} petId={zap.pet.id} atendimentoId={zap.atendimentoId} gatilho={zap.gatilho} />}
+      {zap && (
+        <WhatsappFolha aberta onFechar={() => setZap(null)} tutorId={zap.tutor.id} petId={zap.pet.id} atendimentoId={zap.atendimentoId} vacinaId={zap.vacinaId} gatilho={zap.gatilho} />
+      )}
       <EditarModelo modelo={editando} onFechar={() => setEditando(null)} />
+      <Folha aberta={restaurando} onFechar={() => setRestaurando(false)} titulo="Restaurar os textos padrão?">
+        <p className="text-[14.5px] text-muted">Os títulos e textos que você mudou voltam ao original e todos os modelos ficam ligados. Modelos novos do app também entram.</p>
+        <Botao
+          variante="perigo"
+          className="mt-5"
+          onClick={() => {
+            restaurar();
+            toast("Modelos restaurados");
+            setRestaurando(false);
+          }}
+        >
+          Restaurar padrões
+        </Botao>
+      </Folha>
     </div>
   );
 }
 
 function EditarModelo({ modelo, onFechar }: { modelo: MensagemModelo | null; onFechar: () => void }) {
-  const salvar = useApp((s) => s.salvarModelo);
+  const salvar = useApp((s) => s.editarModelo);
   const toast = useToast();
   const [texto, setTexto] = useState("");
+  const [titulo, setTitulo] = useState("");
+  const [ativo, setAtivo] = useState(true);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [ultimo, setUltimo] = useState<string | null>(null);
   if (modelo && ultimo !== modelo.id) {
     setUltimo(modelo.id);
     setTexto(modelo.texto);
+    setTitulo(modelo.titulo);
+    setAtivo(modelo.ativo);
   }
   if (!modelo && ultimo !== null) setUltimo(null);
 
@@ -185,7 +213,8 @@ function EditarModelo({ modelo, onFechar }: { modelo: MensagemModelo | null; onF
   };
 
   return (
-    <Folha aberta={!!modelo} onFechar={onFechar} titulo={modelo?.titulo ?? ""}>
+    <Folha aberta={!!modelo} onFechar={onFechar} titulo="Editar modelo">
+      <input className="input mb-3 font-semibold" value={titulo} onChange={(e) => setTitulo(e.target.value)} aria-label="Título do modelo" />
       <textarea ref={ref} value={texto} onChange={(e) => setTexto(e.target.value)} rows={6} className="input resize-none leading-relaxed" />
       <p className="label mt-3">Toque para inserir um dado</p>
       <div className="flex flex-wrap gap-2">
@@ -195,11 +224,19 @@ function EditarModelo({ modelo, onFechar }: { modelo: MensagemModelo | null; onF
           </button>
         ))}
       </div>
+      <label className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3 text-[14.5px]">
+        <span>
+          Modelo ligado
+          <span className="block text-[12.5px] text-muted">Desligado não aparece nas sugestões do dia.</span>
+        </span>
+        <input type="checkbox" className="h-6 w-6 accent-brand-600" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+      </label>
       <Botao
         className="mt-5"
         onClick={() => {
           if (!modelo) return;
-          salvar(modelo.id, texto);
+          const r = salvar(modelo.id, { titulo, texto, ativo });
+          if (!r.ok) return toast(r.erro, "erro");
           toast("Modelo salvo");
           onFechar();
         }}

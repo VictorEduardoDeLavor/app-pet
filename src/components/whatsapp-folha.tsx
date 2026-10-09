@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, MessageCircle, TriangleAlert } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { GatilhoMensagem } from "@/domain/types";
-import { linkWhatsapp, renderMensagem, variaveisDoAtendimento, type Variaveis } from "@/domain/messages";
+import { linkAgendar, linkWhatsapp, renderMensagem, variaveisDaVacina, variaveisDoAtendimento, type Variaveis } from "@/domain/messages";
 import { porId, petsDoTutor, planoAtivoDoPet, saldoPlano } from "@/domain/rules";
 import { hoje, primeiroNome, telefone } from "@/domain/format";
 import { Aviso, Botao, Folha, cx } from "./ui";
@@ -16,6 +16,7 @@ export function WhatsappFolha({
   tutorId,
   atendimentoId,
   petId,
+  vacinaId,
   gatilho,
 }: {
   aberta: boolean;
@@ -23,6 +24,8 @@ export function WhatsappFolha({
   tutorId: string;
   atendimentoId?: string;
   petId?: string;
+  /** Lembrete de vacina: preenche {vacina} e {vencimento}. */
+  vacinaId?: string;
   gatilho: GatilhoMensagem;
 }) {
   const db = useDb();
@@ -33,8 +36,10 @@ export function WhatsappFolha({
   const [modeloId, setModeloId] = useState(() => db.mensagemModelos.find((m) => m.gatilho === gatilho)?.id ?? db.mensagemModelos[0].id);
   const modelo = porId(db.mensagemModelos, modeloId)!;
 
+  const vacina = porId(db.vacinas, vacinaId);
   const vars: Variaveis = useMemo(() => {
     if (atd) return variaveisDoAtendimento(db, atd);
+    if (vacina) return variaveisDaVacina(db, vacina);
     const pet = porId(db.pets, petId) ?? (tutor ? petsDoTutor(db, tutor.id)[0] : undefined);
     const plano = pet ? planoAtivoDoPet(db, pet.id, hoje()) : undefined;
     const saldo = plano ? saldoPlano(db, plano.id) : undefined;
@@ -43,17 +48,23 @@ export function WhatsappFolha({
       pet: pet?.nome,
       petshop: db.petshop.nome,
       saldo_plano: saldo !== undefined ? `${saldo} ${saldo === 1 ? "banho" : "banhos"}` : undefined,
+      agendar: db.petshop.agendamentoOnline ? linkAgendar(db.petshop.slug) : undefined,
     };
-  }, [db, atd, petId, tutor]);
+  }, [db, atd, vacina, petId, tutor]);
 
+  // O texto só é refeito ao abrir ou trocar de modelo: a atualização automática da tela não apaga o que foi editado.
   const [texto, setTexto] = useState("");
   useEffect(() => {
     if (aberta) setTexto(renderMensagem(modelo.texto, vars));
-  }, [aberta, modelo, vars]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberta, modeloId]);
 
   useEffect(() => {
     if (aberta) setModeloId(db.mensagemModelos.find((m) => m.gatilho === gatilho)?.id ?? db.mensagemModelos[0].id);
-  }, [aberta, gatilho, db.mensagemModelos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberta, gatilho]);
+
+  const modelosVisiveis = db.mensagemModelos.filter((m) => m.ativo || m.id === modeloId);
 
   if (!tutor) return null;
   const faltando = texto.match(/\{\w+\}/g);
@@ -64,7 +75,7 @@ export function WhatsappFolha({
         Para {tutor.nome} · {telefone(tutor.whatsapp)}
       </p>
       <div className="no-scrollbar -mx-5 mb-3 flex gap-2 overflow-x-auto px-5">
-        {db.mensagemModelos.map((m) => (
+        {modelosVisiveis.map((m) => (
           <button
             key={m.id}
             onClick={() => setModeloId(m.id)}

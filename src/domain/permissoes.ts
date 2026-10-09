@@ -16,6 +16,7 @@ export type Area =
   | "clientes"
   | "mensagens"
   | "financeiro"
+  | "relatorios"
   | "comissoes"
   | "planos"
   | "servicos"
@@ -25,8 +26,8 @@ export type Area =
   | "configuracoes";
 
 const AREAS: Record<Papel, Area[]> = {
-  dono: ["inicio", "fila", "rotas", "agenda", "clientes", "mensagens", "financeiro", "comissoes", "planos", "servicos", "produtos", "equipe", "assinatura", "configuracoes"],
-  recepcao: ["inicio", "rotas", "agenda", "clientes", "mensagens", "financeiro", "planos", "servicos", "produtos"],
+  dono: ["inicio", "fila", "rotas", "agenda", "clientes", "mensagens", "financeiro", "relatorios", "comissoes", "planos", "servicos", "produtos", "equipe", "assinatura", "configuracoes"],
+  recepcao: ["inicio", "rotas", "agenda", "clientes", "mensagens", "financeiro", "relatorios", "planos", "servicos", "produtos"],
   banhista: ["fila"],
   motorista: ["rotas"],
 };
@@ -66,12 +67,14 @@ function areaDaRota(caminho: string): Area | null {
     ["/clientes", "clientes"],
     ["/mensagens", "mensagens"],
     ["/financeiro", "financeiro"],
+    ["/relatorios", "relatorios"],
     ["/comissoes", "comissoes"],
     ["/planos", "planos"],
     ["/servicos", "servicos"],
     ["/produtos", "produtos"],
     ["/equipe", "equipe"],
     ["/assinatura", "assinatura"],
+    ["/configuracoes", "configuracoes"],
   ];
   return mapa.find(([prefixo]) => caminho === prefixo || caminho.startsWith(prefixo + "/"))?.[1] ?? null;
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import {
+  BarChart3,
   Calendar,
   Car,
   ClipboardList,
@@ -20,6 +21,7 @@ import {
   Scissors,
   Settings,
   ShoppingBag,
+  Store,
   UserCog,
   Users,
   Wallet,
@@ -44,11 +46,13 @@ const NAV_MENSAGENS: ItemNav = { href: "/mensagens", rotulo: "Mensagens", Icone:
 
 const GESTAO: ItemNav[] = [
   { href: "/financeiro", rotulo: "Financeiro", Icone: Wallet, area: "financeiro", prefixos: ["/financeiro"] },
+  { href: "/relatorios", rotulo: "Relatórios", Icone: BarChart3, area: "relatorios", prefixos: ["/relatorios"] },
   { href: "/comissoes", rotulo: "Comissões", Icone: HandCoins, area: "comissoes", prefixos: ["/comissoes"] },
   { href: "/planos", rotulo: "Planos e pacotes", Icone: ClipboardList, area: "planos", prefixos: ["/planos"] },
   { href: "/servicos", rotulo: "Serviços e preços", Icone: Scissors, area: "servicos", prefixos: ["/servicos"] },
   { href: "/equipe", rotulo: "Equipe", Icone: UserCog, area: "equipe", prefixos: ["/equipe"] },
-  { href: "/produtos", rotulo: "Produtos", Icone: ShoppingBag, area: "produtos", prefixos: ["/produtos"] },
+  { href: "/produtos", rotulo: "Produtos e estoque", Icone: ShoppingBag, area: "produtos", prefixos: ["/produtos"] },
+  { href: "/configuracoes", rotulo: "Dados do pet shop", Icone: Store, area: "configuracoes", prefixos: ["/configuracoes"] },
   { href: "/assinatura", rotulo: "Assinatura", Icone: CreditCard, area: "assinatura", prefixos: ["/assinatura"] },
 ];
 
@@ -95,6 +99,7 @@ export function Shell({ children, semNav = false }: { children: ReactNode; semNa
   }, [caminho, destino, router]);
 
   const itens = navMovel(papel);
+  useAtualizacaoAutomatica();
 
   return (
     <div className="lg:pl-[256px]">
@@ -140,6 +145,33 @@ export function Shell({ children, semNav = false }: { children: ReactNode; semNa
       </div>
     </div>
   );
+}
+
+/**
+ * Modo nuvem: a tela de cada pessoa se atualiza sozinha (a cada 30 s com o app aberto e ao voltar para ele),
+ * para a recepção ver o que o banhista registrou e vice-versa, sem precisar recarregar.
+ */
+function useAtualizacaoAutomatica() {
+  const modo = useApp((s) => s.modo);
+  useEffect(() => {
+    if (modo !== "nuvem") return;
+    let ultima = Date.now();
+    const atualizar = () => {
+      const { sincronizando, recarregar } = useApp.getState();
+      if (document.visibilityState !== "visible" || sincronizando > 0) return;
+      ultima = Date.now();
+      void recarregar();
+    };
+    const timer = setInterval(() => Date.now() - ultima >= 29_000 && atualizar(), 5_000);
+    const aoVoltar = () => document.visibilityState === "visible" && Date.now() - ultima > 5_000 && atualizar();
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("focus", aoVoltar);
+    };
+  }, [modo]);
 }
 
 /** Menu lateral fixo nas telas largas (computador e tablet deitado). */

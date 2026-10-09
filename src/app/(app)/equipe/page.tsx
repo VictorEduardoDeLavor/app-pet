@@ -1,8 +1,8 @@
 "use client";
 
 import { MARCA } from "@/lib/marca";
-import { useState } from "react";
-import { Copy, KeyRound, MessageCircle, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Copy, KeyRound, MessageCircle, Pencil, UserPlus } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { Membro } from "@/domain/types";
 import { atendimentosDoDia } from "@/domain/rules";
@@ -16,6 +16,7 @@ export default function Equipe() {
   const modo = useApp((s) => s.modo);
   const [novo, setNovo] = useState(false);
   const [convidando, setConvidando] = useState<string | null>(null);
+  const [editando, setEditando] = useState<string | null>(null);
   const doDia = atendimentosDoDia(db, hoje()).filter((a) => a.status !== "cancelado");
   const agora = new Date().toISOString();
 
@@ -33,12 +34,12 @@ export default function Equipe() {
         Equipe
       </TituloVoltar>
       <ul className="mt-2 space-y-2.5 px-5">
-        {db.membros.map((m) => {
+        {[...db.membros].sort((a, b) => Number(b.ativo) - Number(a.ativo)).map((m) => {
           const meus = doDia.filter((a) => a.profissionalId === m.id);
           const feitos = meus.filter((a) => a.status === "finalizado").length;
           const conviteValido = m.convite && m.convite.expiraEm > agora;
           return (
-            <li key={m.id} className="card px-4 py-3.5">
+            <li key={m.id} className={cx("card px-4 py-3.5", !m.ativo && "opacity-60")}>
               <div className="flex items-center gap-3">
                 <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-100 text-[14px] font-bold text-brand-700">{iniciais(m.nome)}</span>
                 <div className="min-w-0 flex-1">
@@ -48,14 +49,23 @@ export default function Equipe() {
                   </p>
                   <p className="truncate text-[13px] text-muted">
                     {NOME_PAPEL[m.papel]}
-                    {m.papel === "banhista" && (m.comissaoPct > 0 ? ` · comissão própria ${m.comissaoPct}%` : " · comissão da tabela")}
+                    {(m.papel === "banhista" || m.papel === "dono") &&
+                      (m.semComissao ? " · sem comissão" : m.comissaoPct > 0 ? ` · comissão própria ${m.comissaoPct}%` : m.papel === "banhista" ? " · comissão da tabela" : "")}
                   </p>
                 </div>
-                {m.papel !== "recepcao" && meus.length > 0 && (
-                  <Chip tom="brand">
-                    {feitos}/{meus.length} hoje
-                  </Chip>
+                {!m.ativo ? (
+                  <Chip tom="neutral">Inativo</Chip>
+                ) : (
+                  m.papel !== "recepcao" &&
+                  meus.length > 0 && (
+                    <Chip tom="brand">
+                      {feitos}/{meus.length} hoje
+                    </Chip>
+                  )
                 )}
+                <button aria-label={`Editar ${m.nome}`} onClick={() => setEditando(m.id)} className="tap grid h-9 w-9 shrink-0 place-items-center rounded-full text-brand-600 hover:bg-surface">
+                  <Pencil className="h-4 w-4" />
+                </button>
               </div>
               {m.ativo && !m.temConta && (
                 <button
@@ -90,7 +100,97 @@ export default function Equipe() {
         }}
       />
       {convidando && <ConviteFolha membroId={convidando} onFechar={() => setConvidando(null)} />}
+      <EditarMembroFolha membroId={editando} onFechar={() => setEditando(null)} />
     </div>
+  );
+}
+
+function EditarMembroFolha({ membroId, onFechar }: { membroId: string | null; onFechar: () => void }) {
+  const db = useDb();
+  const editar = useApp((s) => s.editarMembro);
+  const toast = useToast();
+  const m = db.membros.find((x) => x.id === membroId);
+  const [nome, setNome] = useState("");
+  const [papel, setPapel] = useState<Membro["papel"]>("banhista");
+  const [comissao, setComissao] = useState("");
+  const [semComissao, setSemComissao] = useState(false);
+
+  useEffect(() => {
+    if (!m) return;
+    setNome(m.nome);
+    setPapel(m.papel);
+    setComissao(m.comissaoPct > 0 ? String(m.comissaoPct).replace(".", ",") : "");
+    setSemComissao(!!m.semComissao);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membroId]);
+
+  if (!m) return null;
+  const sou = m.id === db.usuarioAtualId;
+  const atende = papel === "banhista" || papel === "dono";
+
+  function salvar(extra: { ativo?: boolean } = {}) {
+    const r = editar(m!.id, {
+      nome,
+      papel,
+      comissaoPct: atende ? Number(comissao.replace(",", ".")) || 0 : 0,
+      semComissao: atende && semComissao,
+      ...extra,
+    });
+    if (!r.ok) return toast(r.erro, "erro");
+    toast(extra.ativo === false ? `${nome.split(" ")[0]} não entra mais no app` : extra.ativo ? `${nome.split(" ")[0]} voltou para a equipe` : "Dados atualizados");
+    onFechar();
+  }
+
+  return (
+    <Folha aberta onFechar={onFechar} titulo={`Editar ${m.nome.split(" ")[0]}`}>
+      <div className="space-y-4">
+        <Campo rotulo="Nome">
+          <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
+        </Campo>
+        <div>
+          <span className="label">Função</span>
+          <div className="grid grid-cols-4 gap-1.5">
+            {(["dono", "recepcao", "banhista", "motorista"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                disabled={sou && m.papel === "dono" && p !== "dono"}
+                onClick={() => setPapel(p)}
+                className={cx(
+                  "tap rounded-xl border px-1 py-2.5 text-[12.5px] font-medium disabled:opacity-40",
+                  papel === p ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted",
+                )}
+              >
+                {p === "banhista" ? "Banhista" : NOME_PAPEL[p]}
+              </button>
+            ))}
+          </div>
+          {papel === "dono" && m.papel !== "dono" && <p className="mt-1.5 text-[12.5px] text-warn-700">Dono vê tudo, inclusive dinheiro, equipe e assinatura.</p>}
+        </div>
+        {atende && (
+          <>
+            <Campo rotulo="Comissão própria (%)" dica="Vazio = usa a % de cada serviço. A % própria vale para todos os serviços.">
+              <input className="input" inputMode="decimal" disabled={semComissao} value={comissao} onChange={(e) => setComissao(e.target.value)} placeholder="Tabela de serviços" />
+            </Campo>
+            <label className="flex items-start gap-3 rounded-2xl bg-surface px-4 py-3 text-[14px]">
+              <input type="checkbox" checked={semComissao} onChange={(e) => setSemComissao(e.target.checked)} className="mt-0.5 h-5 w-5 accent-brand-600" />
+              <span>
+                Não recebe comissão
+                <span className="block text-[12.5px] text-muted">Ex.: o dono que também dá banho. Os atendimentos dele não entram no extrato de comissões.</span>
+              </span>
+            </label>
+          </>
+        )}
+      </div>
+      <Botao className="mt-5" onClick={() => salvar()}>
+        Salvar
+      </Botao>
+      {!sou && (
+        <button onClick={() => salvar({ ativo: !m.ativo })} className={cx("mx-auto mt-4 block text-[14px] font-medium", m.ativo ? "text-bad-700" : "text-brand-600")}>
+          {m.ativo ? "Desativar: não entra mais no app" : "Reativar na equipe"}
+        </button>
+      )}
+    </Folha>
   );
 }
 

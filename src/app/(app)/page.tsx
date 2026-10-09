@@ -2,11 +2,16 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { Bell, CalendarDays, CalendarPlus, Car, ChevronRight, ClipboardList, MessageCircle, PawPrint, TriangleAlert, Users } from "lucide-react";
-import { useDb } from "@/data/store";
+import { Bell, CalendarDays, CalendarPlus, Car, ChevronRight, ClipboardList, Gift, Globe, MessageCircle, PackageOpen, PawPrint, ShoppingBag, Syringe, TriangleAlert, Users } from "lucide-react";
+import { useDb, usePapel } from "@/data/store";
+import { pedidosOnlinePendentes } from "@/domain/agendamento-online";
+import { vacinasVencendo } from "@/domain/vacinas";
+import { produtosAbaixoDoMinimo } from "@/domain/produtos";
+import { petsComPremio } from "@/domain/fidelidade";
+import { pode } from "@/domain/permissoes";
 import { atendimentosDoDia, clientesSumidos, emRota, kpisDoDia, planosAVencer, porId, prontosParaAvisar } from "@/domain/rules";
-import { dataLonga, hoje, horaAtual, horaDoIso, moedaCurta, primeiroNome, saudacao } from "@/domain/format";
-import { CapaFoto, Chip, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
+import { dataLonga, diaCurto, hoje, horaAtual, horaDoIso, moeda, moedaCurta, primeiroNome, saudacao } from "@/domain/format";
+import { CapaFoto, Chip, Folha, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { FaixaAssinatura } from "@/components/portao";
 import { MARCA } from "@/lib/marca";
@@ -25,6 +30,20 @@ export default function Inicio() {
   const frase = petProximo ? `Próximo: ${petProximo.nome} às ${proximo!.hora}` : proximos.length ? "Tudo andando por aqui." : "Agenda livre por enquanto.";
   const [avisar, setAvisar] = useState<{ tutorId: string; atendimentoId: string } | null>(null);
   const naRua = atendimentosDoDia(db, T).filter((a) => emRota(db, a.id));
+  const papel = usePapel();
+  const online = pedidosOnlinePendentes(db, T);
+  const vacinas = vacinasVencendo(db, T);
+  const estoqueBaixo = pode(papel, "produtos") ? produtosAbaixoDoMinimo(db) : [];
+  const premios = petsComPremio(db);
+  const [avisos, setAvisos] = useState(false);
+  const alertas = [
+    online.length && { href: online.length === 1 ? `/atendimentos/${online[0].id}` : `/agenda?status=online&data=${online[0].data}`, icone: <Globe />, titulo: `${online.length} ${online.length === 1 ? "pedido online" : "pedidos online"} para confirmar` },
+    aVencer.length && { href: "/planos?filtro=vencer", icone: <ClipboardList />, titulo: `${aVencer.length} ${aVencer.length === 1 ? "plano a vencer" : "planos a vencer"}` },
+    vacinas.length && { href: "/mensagens", icone: <Syringe />, titulo: `${vacinas.length} ${vacinas.length === 1 ? "vacina vencendo" : "vacinas vencendo"}: avise os tutores` },
+    sumidos.length && { href: "/mensagens#sumidos", icone: <Users />, titulo: `${sumidos.length} clientes sumidos` },
+    estoqueBaixo.length && { href: "/produtos", icone: <PackageOpen />, titulo: `${estoqueBaixo.length} ${estoqueBaixo.length === 1 ? "produto acabando" : "produtos acabando"}` },
+    premios.length && { href: `/pets/${premios[0].petId}`, icone: <Gift />, titulo: `${premios.length} ${premios.length === 1 ? "pet com prêmio" : "pets com prêmio"} de fidelidade para usar` },
+  ].filter(Boolean) as { href: string; icone: ReactNode; titulo: string }[];
 
   return (
     <div>
@@ -36,10 +55,12 @@ export default function Inicio() {
             <p className="text-[12.5px] text-muted">{db.petshop.nome}</p>
           </div>
         </div>
-        <Link href="/planos?filtro=vencer" aria-label="Alertas" className="tap relative grid h-11 w-11 place-items-center rounded-full hover:bg-surface">
+        <button onClick={() => setAvisos(true)} aria-label={`Avisos (${alertas.length})`} className="tap relative grid h-11 w-11 place-items-center rounded-full hover:bg-surface">
           <Bell className="h-[22px] w-[22px] text-ink" />
-          {aVencer.length + sumidos.length > 0 && <span className="absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-bad-500" />}
-        </Link>
+          {alertas.length > 0 && (
+            <span className="absolute right-1 top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-white bg-bad-500 px-1 text-[10px] font-bold text-white">{alertas.length}</span>
+          )}
+        </button>
       </header>
 
       <CapaFoto foto="/fotos/inicio-sofa.webp" posicao="center 35%" className="mx-5 mt-4">
@@ -58,6 +79,37 @@ export default function Inicio() {
       </CapaFoto>
 
       <FaixaAssinatura className="mx-5 mt-4" />
+
+      {online.length > 0 && (
+        <section className="mx-5 mt-4 rounded-[20px] border border-brand-200 bg-brand-50 px-4 py-3.5" aria-label="Pedidos online">
+          <p className="flex items-center gap-2 text-[15px] font-semibold text-brand-700">
+            <Globe className="h-5 w-5" />
+            {online.length === 1 ? "1 pedido online para confirmar" : `${online.length} pedidos online para confirmar`}
+          </p>
+          <ul className="mt-2.5 space-y-2">
+            {online.slice(0, 4).map((a) => {
+              const pet = porId(db.pets, a.petId)!;
+              const tutor = porId(db.tutores, a.tutorId);
+              return (
+                <li key={a.id}>
+                  <Link href={`/atendimentos/${a.id}`} className="tap flex items-center gap-3 rounded-2xl bg-white px-3 py-2.5">
+                    <PetAvatar pet={pet} tamanho={40} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[15px] font-semibold">
+                        {pet.nome} <span className="font-normal text-muted">· {tutor ? primeiroNome(tutor.nome) : ""}</span>
+                      </p>
+                      <p className="truncate text-[12.5px] text-muted">
+                        {a.data === T ? "Hoje" : diaCurto(a.data)} {a.data.slice(8)}/{a.data.slice(5, 7)} às {a.hora} · {a.itens.map((i) => i.nome).join(" + ")}
+                      </p>
+                    </div>
+                    {!!a.sinalValor && <Chip tom={a.sinalPago ? "ok" : "warn"}>{a.sinalPago ? "Sinal pago" : `Sinal ${moeda(a.sinalValor)}`}</Chip>}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {aVencer.length > 0 && (
         <Link
@@ -112,7 +164,11 @@ export default function Inicio() {
       <div className="mx-5 mt-4 grid grid-cols-2 gap-3">
         <Atalho href="/agenda/novo" icone={<CalendarPlus />} rotulo="Novo agendamento" />
         <Atalho href="/clientes" icone={<Users />} rotulo="Clientes" />
-        <Atalho href="/planos" icone={<ClipboardList />} rotulo="Planos" />
+        {pode(papel, "produtos") && db.produtos.some((p) => p.ativo) ? (
+          <Atalho href="/produtos?vender=1" icone={<ShoppingBag />} rotulo="Vender produto" />
+        ) : (
+          <Atalho href="/planos" icone={<ClipboardList />} rotulo="Planos" />
+        )}
         <Atalho href="/rotas" icone={<Car />} rotulo={naRua.length ? `Leva e traz · ${naRua.length} na rua` : "Leva e traz"} />
       </div>
 
@@ -172,6 +228,24 @@ export default function Inicio() {
           <ChevronRight className="h-5 w-5 text-subtle" />
         </Link>
       )}
+
+      <Folha aberta={avisos} onFechar={() => setAvisos(false)} titulo="Avisos">
+        {alertas.length === 0 ? (
+          <p className="pb-4 text-[14.5px] text-muted">Nada pedindo atenção agora.</p>
+        ) : (
+          <ul className="space-y-2 pb-2">
+            {alertas.map((x) => (
+              <li key={x.href + x.titulo}>
+                <Link href={x.href} onClick={() => setAvisos(false)} className="tap flex items-center gap-3 rounded-2xl border border-line px-4 py-3.5">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 [&>svg]:h-[18px] [&>svg]:w-[18px]">{x.icone}</span>
+                  <span className="flex-1 text-[14.5px] font-medium">{x.titulo}</span>
+                  <ChevronRight className="h-5 w-5 text-subtle" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Folha>
 
       {avisar && <WhatsappFolha aberta onFechar={() => setAvisar(null)} tutorId={avisar.tutorId} atendimentoId={avisar.atendimentoId} gatilho="pet_pronto" />}
     </div>

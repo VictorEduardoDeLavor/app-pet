@@ -545,4 +545,142 @@ describe("schema Supabase", () => {
     await como(U_ANA, () => db.query(`select aceitar_termos($1, '2026-10')`, [A]));
     expect((await um<{ v: string }>(`select termos_versao as v from petshops where id = $1`, [A])).v).toBe("2026-10");
   });
+
+  // -------------------------------------------------------------------------
+  // 0011: produtos e estoque, vacinas, fidelidade, agendamento online, sinal e correções
+  // -------------------------------------------------------------------------
+
+  it("venda de produto: receita no caixa, itens e baixa no estoque; banhista não vende", async () => {
+    const shampoo = (await um<{ id: string }>(`insert into produtos (petshop_id, nome, categoria, preco_venda, estoque_minimo) values ($1, 'Shampoo neutro', 'Higiene', 39.9, 2) returning id`, [A])).id;
+    await como(U_ANA, () => db.query(`select registrar_entrada_estoque($1::jsonb, $2::jsonb)`, [
+      JSON.stringify({ petshop_id: A, produto_id: shampoo, quantidade: 10, custo_unitario: 18 }),
+      JSON.stringify({ petshop_id: A, tipo: "despesa", categoria: "Compra de produtos", descricao: "Shampoo x10", valor: 180, forma_pagamento: "pix", status: "pago", competencia: "2026-10-09", pago_em: "2026-10-09T12:00:00Z" }),
+    ]));
+    expect(await um(`select estoque::int as estoque, custo::float as custo from produtos where id = $1`, [shampoo])).toEqual({ estoque: 10, custo: 18 });
+
+    const venda = await como(U_ANA, () => um<{ v: string }>(`select registrar_venda($1::jsonb, $2::jsonb, $3::jsonb) as v`, [
+      JSON.stringify({ petshop_id: A, total: 79.8, status: "pago", forma_pagamento: "dinheiro" }),
+      JSON.stringify([{ produto_id: shampoo, nome: "Shampoo neutro", quantidade: 2, preco: 39.9 }]),
+      JSON.stringify({ petshop_id: A, tipo: "receita", categoria: "Produtos", descricao: "Venda: Shampoo neutro x2", valor: 79.8, forma_pagamento: "dinheiro", status: "pago", competencia: "2026-10-09", pago_em: "2026-10-09T13:00:00Z" }),
+    ]));
+    expect(await um(`select estoque::int as estoque from produtos where id = $1`, [shampoo])).toEqual({ estoque: 8 });
+    const v = await um<{ total: string; lancamento_id: string; membro_id: string }>(`select total, lancamento_id, membro_id from vendas where id = $1`, [venda.v]);
+    expect(Number(v.total)).toBe(79.8);
+    expect(v.lancamento_id).toBeTruthy();
+    expect((await um<{ n: number }>(`select count(*)::int as n from estoque_movimentos where produto_id = $1`, [shampoo])).n).toBe(2);
+
+    await expect(como(U_BRUNO, () => db.query(`select registrar_venda($1::jsonb, '[]'::jsonb, null)`, [JSON.stringify({ petshop_id: A, total: 1 })]))).rejects.toThrow(/row-level security/);
+    expect(await como(U_BRUNO, async () => (await db.query(`select * from produtos`)).rows.length)).toBeGreaterThan(0); // vê o catálogo
+    await expect(como(U_BRUNO, () => db.query(`update produtos set preco_venda = 1 where id = $1`, [shampoo]))).resolves.toMatchObject({ affectedRows: 0 });
+  });
+
+  it("plano vencido com saldo não trava a venda de um plano novo", async () => {
+    const tutor = (await um<{ tutor_id: string }>(`select tutor_id from pets where id = $1`, [luna])).tutor_id;
+    await db.query(`update planos_pet set status = 'cancelado' where pet_id = $1 and status = 'ativo'`, [luna]);
+    const velho = (await um<{ id: string }>(
+      `insert into planos_pet (petshop_id, nome, pet_id, tutor_id, servico_ids, total_usos, preco, inicio, vencimento) values ($1, 'Antigo', $2, $3, array[$4]::uuid[], 4, 200, current_date - 60, current_date - 30) returning id`,
+      [A, luna, tutor, banho],
+    )).id;
+    await como(U_ANA, () => db.query(`select vender_plano($1::jsonb, $2::jsonb)`, [
+      JSON.stringify({ id: "00000000-0000-0000-0000-0000000000e1", petshop_id: A, nome: "Novo", pet_id: luna, tutor_id: tutor, servico_ids: [banho], total_usos: 4, preco: 200, inicio: "2026-10-09", vencimento: "2026-11-08" }),
+      JSON.stringify({ id: "00000000-0000-0000-0000-0000000000e2", petshop_id: A, tipo: "receita", categoria: "Planos", descricao: "Novo", valor: 200, forma_pagamento: "pix", status: "pago", competencia: "2026-10-09", pago_em: "2026-10-09T12:00:00Z" }),
+    ]));
+    expect((await um<{ status: string }>(`select status from planos_pet where id = $1`, [velho])).status).toBe("vencido");
+    expect((await um<{ n: number }>(`select count(*)::int as n from planos_pet where pet_id = $1 and status = 'ativo'`, [luna])).n).toBe(1);
+  });
+
+  it("finalizar: desconta o sinal pago e quem é 'sem comissão' não recebe", async () => {
+    await db.query(`update membros set sem_comissao = true where id = $1`, [bruno]);
+    const id = await agendar(thor, "2026-10-25 09:00-03", 60, [{ servico: banho, nome: "Banho", preco: 100 }]);
+    await db.query(`update atendimentos set sinal_valor = 30, sinal_pago = true where id = $1`, [id]);
+    await status(id, "em_atendimento");
+    await status(id, "finalizado");
+    const r = await um<{ valor: string }>(`select valor from lancamentos where atendimento_id = $1 and categoria = 'Serviços'`, [id]);
+    expect(Number(r.valor)).toBe(70);
+    expect((await um<{ n: number }>(`select count(*)::int as n from comissoes c join atendimento_itens i on i.id = c.atendimento_item_id where i.atendimento_id = $1`, [id])).n).toBe(0);
+    await db.query(`update membros set sem_comissao = false where id = $1`, [bruno]);
+  });
+
+  it("fidelidade: conta selos e zera depois do resgate; o tutor vê no link", async () => {
+    await db.query(`update petshops set fidelidade_ativa = true, fidelidade_meta = 5 where id = $1`, [A]);
+    const selos = async () => (await um<{ s: number }>(`select fidelidade_selos($1) as s`, [thor])).s;
+    const antes = await selos();
+    expect(antes).toBeGreaterThan(0);
+    const id = await agendar(thor, "2026-10-26 09:00-03", 60, [{ servico: banho, nome: "Banho", preco: 80 }]);
+    await status(id, "em_atendimento");
+    await status(id, "finalizado");
+    expect(await selos()).toBe(antes + 1);
+    const { token } = await um<{ token: string }>(`select token from atendimentos where id = $1`, [id]);
+    const a = (await anon(() => um<{ a: { fidelidade: { meta: number; selos: number } } }>(`select acompanhamento($1) as a`, [token]))).a;
+    expect(a.fidelidade).toMatchObject({ meta: 5, selos: antes + 1 });
+    await db.query(`insert into fidelidade_resgates (petshop_id, pet_id, em) values ($1, $2, '2026-10-27 12:00-03')`, [A, thor]);
+    expect(await selos()).toBe(0);
+  });
+
+  it("agendamento online: anon vê horários, agenda com sinal, cria tutor e pet; limites e desligado", async () => {
+    await db.query(`insert into servico_precos (petshop_id, servico_id, porte, preco, duracao_min) values ($1, $2, 'P', 50, 60), ($1, $2, 'M', 60, 60), ($1, $2, 'G', 80, 60), ($1, $2, 'GG', 100, 60) on conflict do nothing`, [A, banho]);
+    await db.query(`update petshops set slug = 'patinhas', agendamento_online = false, pix_chave = 'pix@patinhas.com', pix_cidade = 'SAO PAULO', sinal_pct = 20, dias_abertos = '{0,1,2,3,4,5,6}', abre = '08:00', fecha = '18:00' where id = $1`, [A]);
+    expect((await anon(() => um<{ a: unknown }>(`select agenda_publica('patinhas') as a`))).a).toBeNull();
+    await db.query(`update petshops set agendamento_online = true where id = $1`, [A]);
+    const ag = (await anon(() => um<{ a: { petshop: { nome: string; sinal_pct: number }; servicos: { nome: string; precos: Record<string, { preco: number }> }[]; equipe: string[] } }>(`select agenda_publica('patinhas') as a`))).a;
+    expect(ag.petshop).toMatchObject({ nome: "Patinhas", sinal_pct: 20 });
+    expect(ag.servicos.find((s) => s.nome === "Banho")!.precos.P.preco).toBe(50);
+    expect(ag.equipe.length).toBeGreaterThan(0);
+
+    const dia = (await um<{ d: string }>(`select to_char(current_date + 3, 'YYYY-MM-DD') as d`)).d;
+    const pedido = (extra: Record<string, unknown> = {}) => JSON.stringify({ nome: "maria clara", whatsapp: "(11) 97777-1234", pet: "bolinha", porte: "P", especie: "cao", servicos: [banho], data: dia, hora: "10:00", aceite: true, ...extra });
+    const r = (await anon(() => um<{ r: { token: string; total: number; sinal: number; pix_chave: string } }>(`select agendar_online('patinhas', $1::jsonb) as r`, [pedido()]))).r;
+    expect(r).toMatchObject({ total: 50, sinal: 10, pix_chave: "pix@patinhas.com" });
+    expect(r.token).toMatch(/^[0-9a-f]{32}$/);
+    const atd = await um<{ origem: string; status: string; nome: string; tutor: string; consent: boolean; sinal: string }>(
+      `select a.origem, a.status, p.nome, t.nome as tutor, t.consentimento_whatsapp_em is not null as consent, a.sinal_valor as sinal
+       from atendimentos a join pets p on p.id = a.pet_id join tutores t on t.id = a.tutor_id where a.token = $1`, [r.token]);
+    expect(atd).toMatchObject({ origem: "portal", status: "agendado", nome: "Bolinha", tutor: "Maria Clara", consent: true });
+
+    // Mesmo WhatsApp e mesmo pet: não duplica.
+    await anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ hora: "13:00" })]));
+    expect((await um<{ n: number }>(`select count(*)::int as n from tutores where whatsapp = '5511977771234'`)).n).toBe(1);
+    expect((await um<{ n: number }>(`select count(*)::int as n from pets p join tutores t on t.id = p.tutor_id where t.whatsapp = '5511977771234'`)).n).toBe(1);
+
+    await expect(anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ aceite: false })]))).rejects.toThrow(/autorize/);
+    await expect(anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ hora: "17:30" })]))).rejects.toThrow(/fechamento/);
+    await expect(anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ whatsapp: "123" })]))).rejects.toThrow(/WhatsApp/);
+    await anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ hora: "15:00" })]));
+    await expect(anon(() => db.query(`select agendar_online('patinhas', $1::jsonb)`, [pedido({ hora: "16:00" })]))).rejects.toThrow(/3 agendamentos/);
+    // anon continua sem ler tabelas.
+    expect(await anon(async () => (await db.query(`select * from tutores`)).rows.length)).toBe(0);
+  });
+
+  it("vacinas: equipe do pet shop grava e lê; outro pet shop não vê", async () => {
+    await como(U_BRUNO, () => db.query(`insert into pet_vacinas (petshop_id, pet_id, tipo, nome, aplicada_em, proxima_em) values ($1, $2, 'vacina', 'V10', '2025-10-01', '2026-10-01')`, [A, thor]));
+    expect(await como(U_ANA, async () => (await db.query(`select * from pet_vacinas`)).rows.length)).toBe(1);
+    expect(await como(U_OUTRO, async () => (await db.query(`select * from pet_vacinas`)).rows.length)).toBe(0);
+  });
+
+  it("venda a receber fica paga junto com a receita; estorno do recebimento reabre venda e atendimento", async () => {
+    const petisco = (await um<{ id: string }>(`insert into produtos (petshop_id, nome, preco_venda, estoque) values ($1, 'Petisco', 10, 0) returning id`, [A])).id;
+    await db.query(`insert into estoque_movimentos (petshop_id, produto_id, tipo, quantidade) values ($1, $2, 'entrada', 5)`, [A, petisco]);
+    const lanc = "00000000-0000-0000-0000-0000000000f1";
+    const venda = await como(U_ANA, () => um<{ v: string }>(`select registrar_venda($1::jsonb, $2::jsonb, $3::jsonb) as v`, [
+      JSON.stringify({ petshop_id: A, total: 20, status: "pendente" }),
+      JSON.stringify([{ produto_id: petisco, nome: "Petisco", quantidade: 2, preco: 10 }]),
+      JSON.stringify({ id: lanc, petshop_id: A, tipo: "receita", categoria: "Produtos", descricao: "Petisco x2", valor: 20, status: "pendente", competencia: "2026-10-09" }),
+    ]));
+    await como(U_ANA, () => db.query(`update lancamentos set status = 'pago', forma_pagamento = 'pix', pago_em = now() where id = $1`, [lanc]));
+    expect(await um(`select status, forma_pagamento from vendas where id = $1`, [venda.v])).toEqual({ status: "pago", forma_pagamento: "pix" });
+    await como(U_ANA, () => db.query(`update lancamentos set status = 'pendente', forma_pagamento = null, pago_em = null where id = $1`, [lanc]));
+    expect((await um<{ status: string }>(`select status from vendas where id = $1`, [venda.v])).status).toBe("pendente");
+
+    const id = await agendar(thor, "2026-10-28 09:00-03", 60, [{ servico: banho, nome: "Banho", preco: 90 }]);
+    await status(id, "em_atendimento");
+    await status(id, "finalizado");
+    await como(U_ANA, () => db.query(`update lancamentos set status = 'pago', forma_pagamento = 'pix', pago_em = now() where atendimento_id = $1`, [id]));
+    expect((await um<{ pago: boolean }>(`select pago from atendimentos where id = $1`, [id])).pago).toBe(true);
+    await como(U_ANA, () => db.query(`update lancamentos set status = 'pendente', forma_pagamento = null, pago_em = null where atendimento_id = $1`, [id]));
+    expect((await um<{ pago: boolean }>(`select pago from atendimentos where id = $1`, [id])).pago).toBe(false);
+  });
+
+  it("slug do link de agendamento só aceita letras minúsculas, números e hífen", async () => {
+    await expect(db.query(`update petshops set slug = 'Meu Pet!' where id = $1`, [A])).rejects.toThrow(/petshops_slug_formato/);
+  });
 });

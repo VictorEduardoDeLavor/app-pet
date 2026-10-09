@@ -12,7 +12,8 @@ import { useApp } from "@/data/store";
 import { buscarAcompanhamento } from "@/data/acompanhamento";
 import { supabase, temSupabase } from "@/lib/supabase/client";
 import { NOME_TRANSPORTE } from "@/domain/rules";
-import { dataLonga, primeiroNome } from "@/domain/format";
+import { dataLonga, moeda, primeiroNome } from "@/domain/format";
+import { CartaoSelos } from "@/components/fidelidade";
 import { linkWhatsapp } from "@/domain/messages";
 import { fraseAtual, linhaDoTutor, passosDoTutor, posicaoSimulada, visaoDoDb, type VisaoTutor } from "@/domain/visao-tutor";
 import { LinhaDoTempo } from "@/components/acompanhamento";
@@ -214,6 +215,20 @@ function Visao({ v, demo, atualizadoEm }: { v: VisaoTutor; demo: boolean; atuali
             )}
           </div>
         </section>
+
+        {v.atendimento.online && !!v.atendimento.sinal && !encerrado && v.atendimento.status !== "finalizado" && (
+          <p className={cx("mt-3 rounded-2xl px-4 py-3 text-[13.5px]", v.atendimento.sinalPago ? "bg-ok-50 text-ok-700" : "bg-warn-50 text-warn-700")}>
+            {v.atendimento.sinalPago
+              ? `Sinal de ${moeda(v.atendimento.sinal)} recebido. Obrigado!`
+              : `Sinal de ${moeda(v.atendimento.sinal)} aguardando confirmação do pet shop.`}
+          </p>
+        )}
+
+        {v.fidelidade && (
+          <div className="mt-4">
+            <CartaoSelos meta={v.fidelidade.meta} selos={v.fidelidade.selos} premio={v.fidelidade.premio} nomePet={v.pet.nome} />
+          </div>
+        )}
 
         {/* Linha do tempo com fotos */}
         <section className="mt-7">

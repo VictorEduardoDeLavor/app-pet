@@ -1,7 +1,26 @@
 // Dados fictícios para o protótipo. Tudo é relativo ao dia de hoje,
 // então a agenda sempre abre com movimento.
 
-import type { Atendimento, AtendimentoEtapa, AtendimentoItem, Db, Etapa, Lancamento, Pet, PlanoPet, PlanoUso, Porte, Posicao, Servico, Transporte, Tutor } from "@/domain/types";
+import type {
+  Atendimento,
+  AtendimentoEtapa,
+  AtendimentoItem,
+  Db,
+  Etapa,
+  Lancamento,
+  MovimentoEstoque,
+  Pet,
+  PlanoPet,
+  PlanoUso,
+  Porte,
+  Posicao,
+  Produto,
+  Servico,
+  Transporte,
+  Tutor,
+  Vacina,
+  Venda,
+} from "@/domain/types";
 import { hoje as hojeIso, somaDias } from "@/domain/format";
 import { MODELOS_PADRAO } from "@/domain/messages";
 
@@ -42,6 +61,7 @@ export function criarSeed(agora: Date = new Date()): Db {
     ["t_eduardo", "Eduardo Nunes", "5511922110099"],
     ["t_lucia", "Lúcia Ramos", "5511911009988"],
     ["t_paulo", "Paulo Mendes", "5511900998877"],
+    ["t_beatriz", "Beatriz Cardoso", "5511987001122"],
   ].map(([id, nome, whatsapp], i) => ({
     id,
     nome,
@@ -73,6 +93,8 @@ export function criarSeed(agora: Date = new Date()): Db {
     pet({ id: "p_pingo", tutorId: "t_eduardo", nome: "Pingo", raca: "Yorkshire", porte: "P", sexo: "M", pesoKg: 2.6, pelagem: "Longa, sedosa", temperamento: "Dócil", ultimaVisita: d(-1) }),
     pet({ id: "p_amora", tutorId: "t_lucia", nome: "Amora", raca: "Lhasa Apso", porte: "P", sexo: "F", pesoKg: 6, pelagem: "Longa", temperamento: "Dócil", ultimaVisita: d(-52) }),
     pet({ id: "p_simba", tutorId: "t_paulo", nome: "Simba", especie: "gato", raca: "Persa", porte: "P", sexo: "M", pesoKg: 4.8, pelagem: "Longa", temperamento: "Arisco", alergias: "shampoo com corante", ultimaVisita: d(-40) }),
+    // Chegou pelo agendamento online: sem foto ainda.
+    { id: "p_toby", tutorId: "t_beatriz", nome: "Toby", especie: "cao", raca: "Shih Tzu", porte: "P" },
   ];
 
   const servico = (id: string) => SERVICOS.find((s) => s.id === id)!;
@@ -93,7 +115,7 @@ export function criarSeed(agora: Date = new Date()): Db {
   function atd(o: {
     id: string; petId: string; prof: string; data: string; hora: string; servicos: string[];
     status: Atendimento["status"]; plano?: string; pagoEm?: string; forma?: Lancamento["formaPagamento"];
-    transporte?: Transporte; endereco?: string; motorista?: string;
+    transporte?: Transporte; endereco?: string; motorista?: string; origem?: Atendimento["origem"]; sinal?: number;
     /** Etapas já registradas: [etapa, "HH:MM", foto?, nota?] */
     etapas?: [Etapa, string, string?, string?][];
   }) {
@@ -116,7 +138,8 @@ export function criarSeed(agora: Date = new Date()): Db {
     }
     atendimentos.push({
       id: o.id, petId: p.id, tutorId: p.tutorId, profissionalId: o.prof, data: o.data, hora: o.hora,
-      duracaoMin: its.reduce((s, i) => s + i.duracaoMin, 0), status: o.status, origem: "balcao",
+      duracaoMin: its.reduce((s, i) => s + i.duracaoMin, 0), status: o.status, origem: o.origem ?? "balcao",
+      sinalValor: o.sinal, sinalPago: o.sinal ? false : undefined,
       itens: its, valorTotal, desconto: 0, planoPetId: o.plano, pago: finalizado && (valorTotal === 0 || !!o.pagoEm),
       eventos: evs,
       token: `demo${o.id.replace(/[^a-z0-9]/gi, "")}`.padEnd(32, "0"),
@@ -159,6 +182,11 @@ export function criarSeed(agora: Date = new Date()): Db {
   atd({ id: "a_amora_1", petId: "p_amora", prof: "m_camila", data: d(-52), hora: "14:00", servicos: ["s_banho_tosa"], status: "finalizado", pagoEm: iso(d(-52), "15:10"), forma: "dinheiro" });
   atd({ id: "a_simba_1", petId: "p_simba", prof: "m_camila", data: d(-40), hora: "16:00", servicos: ["s_banho"], status: "finalizado", pagoEm: iso(d(-40), "16:50"), forma: "pix" });
   atd({ id: "a_pingo_1", petId: "p_pingo", prof: "m_camila", data: d(-1), hora: "16:00", servicos: ["s_banho_tosa"], status: "finalizado" });
+  // Luna é cliente fiel: com o banho de hoje ela completa o cartão fidelidade (10 selos).
+  for (let i = 1; i <= 9; i++) {
+    const dia = d(-14 - i * 14);
+    atd({ id: `a_luna_h${i}`, petId: "p_luna", prof: i % 2 ? "m_camila" : "m_jessica", data: dia, hora: "09:00", servicos: [i % 3 ? "s_banho" : "s_banho_tosa"], status: "finalizado", pagoEm: iso(dia, "10:05"), forma: i % 2 ? "pix" : "credito" });
+  }
 
   // Hoje
   atd({
@@ -183,11 +211,62 @@ export function criarSeed(agora: Date = new Date()): Db {
   // Próximos dias
   atd({ id: "a_luna_prox", petId: "p_luna", prof: "m_camila", data: d(1), hora: "09:00", servicos: ["s_banho"], status: "agendado" });
   atd({ id: "a_max_prox", petId: "p_max", prof: "m_bruno", data: d(2), hora: "13:00", servicos: ["s_banho", "s_unhas"], status: "agendado" });
+  // Pedido que chegou pela página de agendamento online, com sinal de 20% a conferir.
+  atd({ id: "a_toby_online", petId: "p_toby", prof: "m_jessica", data: d(1), hora: "10:00", servicos: ["s_banho", "s_hidratacao"], status: "agendado", origem: "portal", sinal: 17 });
 
   lancamentos.push(
     { id: "lanc_plano_bidu", tipo: "receita", categoria: "Planos", descricao: "Venda de plano · Bidu", valor: 240, formaPagamento: "pix", status: "pago", competencia: T, criadoEm: iso(T, "08:15"), pagoEm: iso(T, "08:15"), planoPetId: "pl_bidu" },
     { id: "lanc_desp_higiene", tipo: "despesa", categoria: "Produtos", descricao: "Produtos de higiene", valor: 120, formaPagamento: "debito", status: "pago", competencia: T, criadoEm: iso(T, "08:30"), pagoEm: iso(T, "08:30") },
   );
+
+  // Produtos, estoque e vendas
+  const produto = (id: string, nome: string, categoria: string, precoVenda: number, custo: number, inicial: number, estoqueMinimo: number, unidade = "un"): Produto => ({
+    id, nome, categoria, precoVenda, custo, estoque: inicial, estoqueMinimo, unidade, ativo: true, criadoEm: iso(d(-60), "09:00"),
+  });
+  const produtos: Produto[] = [
+    produto("pr_shampoo", "Shampoo neutro 500 ml", "Higiene", 39.9, 18, 14, 4),
+    produto("pr_perfume", "Colônia pet 120 ml", "Higiene", 29.9, 12, 3, 4),
+    produto("pr_bifinho", "Bifinho de carne 65 g", "Petiscos", 12.9, 6.5, 30, 10),
+    produto("pr_laco", "Laço de cabelo (kit 10)", "Acessórios", 15, 5, 25, 5, "pct"),
+    produto("pr_escova", "Escova rasqueadeira", "Acessórios", 34.9, 17, 6, 2),
+    produto("pr_antipulgas", "Coleira antipulgas", "Farmácia", 89.9, 52, 5, 2),
+    produto("pr_racao", "Ração premium 1 kg", "Alimentação", 32, 21, 12, 5, "pct"),
+  ];
+  const movimentos: MovimentoEstoque[] = produtos.map((p) => ({
+    id: `mov_ini_${p.id}`, produtoId: p.id, tipo: "entrada", quantidade: p.estoque, custoUnitario: p.custo, observacao: "Estoque inicial", porMembroId: "m_ana", em: p.criadoEm,
+  }));
+  const vendas: Venda[] = [];
+  function vender(id: string, quando: string, itens: [string, number][], o: { forma?: Lancamento["formaPagamento"]; tutor?: string; atendimento?: string } = {}) {
+    const its = itens.map(([pid, q]) => {
+      const p = produtos.find((x) => x.id === pid)!;
+      return { produtoId: pid, nome: p.nome, quantidade: q, preco: p.precoVenda };
+    });
+    const total = Math.round(its.reduce((s, i) => s + i.preco * i.quantidade, 0) * 100) / 100;
+    const lancId = `lanc_${id}`;
+    lancamentos.push({
+      id: lancId, tipo: "receita", categoria: "Produtos", descricao: its.map((i) => (i.quantidade === 1 ? i.nome : `${i.quantidade}× ${i.nome}`)).join(", "),
+      valor: total, formaPagamento: o.forma, status: o.forma ? "pago" : "pendente", competencia: quando.slice(0, 10), criadoEm: quando, pagoEm: o.forma ? quando : undefined,
+    });
+    vendas.push({ id, tutorId: o.tutor, atendimentoId: o.atendimento, itens: its, total, desconto: 0, status: o.forma ? "pago" : "pendente", formaPagamento: o.forma, porMembroId: "m_rita", lancamentoId: lancId, criadoEm: quando });
+    for (const i of its) {
+      movimentos.push({ id: `mov_${id}_${i.produtoId}`, produtoId: i.produtoId, tipo: "venda", quantidade: -i.quantidade, vendaId: id, porMembroId: "m_rita", em: quando });
+      const p = produtos.find((x) => x.id === i.produtoId)!;
+      p.estoque -= i.quantidade;
+    }
+  }
+  vender("v_1", iso(d(-14), "10:12"), [["pr_shampoo", 1], ["pr_bifinho", 2]], { forma: "pix", tutor: "t_ana", atendimento: "a_luna_1" });
+  vender("v_2", iso(d(-6), "17:40"), [["pr_antipulgas", 1]], { forma: "credito", tutor: "t_juliana" });
+  vender("v_3", iso(d(-1), "11:20"), [["pr_racao", 2], ["pr_bifinho", 1]], { forma: "dinheiro" });
+  vender("v_4", iso(d(-1), "17:05"), [["pr_laco", 1], ["pr_perfume", 1]], { forma: "pix", tutor: "t_eduardo", atendimento: "a_pingo_1" });
+
+  // Carteira de saúde
+  const vacinas: Vacina[] = [
+    { id: "vac_thor_v10", petId: "p_thor", tipo: "vacina", nome: "V10 (polivalente)", aplicadaEm: d(-360), proximaEm: d(5) },
+    { id: "vac_thor_raiva", petId: "p_thor", tipo: "vacina", nome: "Antirrábica", aplicadaEm: d(-200), proximaEm: d(165) },
+    { id: "vac_luna_raiva", petId: "p_luna", tipo: "vacina", nome: "Antirrábica", aplicadaEm: d(-368), proximaEm: d(-3), observacao: "Aplicada na clínica do bairro." },
+    { id: "vac_mel_verm", petId: "p_mel", tipo: "vermifugo", nome: "Vermífugo", aplicadaEm: d(-80), proximaEm: d(10) },
+    { id: "vac_max_pulgas", petId: "p_max", tipo: "antipulgas", nome: "Antipulgas", aplicadaEm: d(-12), proximaEm: d(18) },
+  ];
 
   return {
     petshop: {
@@ -200,6 +279,15 @@ export function criarSeed(agora: Date = new Date()): Db {
       fecha: "18:00",
       faltaConsomeUso: false,
       diasClienteSumido: 30,
+      endereco: "Rua das Acácias, 300 · São Mateus, São Paulo",
+      agendamentoOnline: true,
+      pixChave: "pix@patinhas.exemplo.com",
+      pixCidade: "São Paulo",
+      sinalPct: 20,
+      fidelidadeAtiva: true,
+      fidelidadeMeta: 10,
+      fidelidadeServicoIds: [],
+      fidelidadePremio: "1 banho grátis",
     },
     usuarioAtualId: "m_ana",
     membros: [
@@ -215,9 +303,9 @@ export function criarSeed(agora: Date = new Date()): Db {
     servicos: SERVICOS,
     atendimentos,
     planosModelo: [
-      { id: "pm_4banhos", nome: "Pacote 4 banhos", servicoIds: ["s_banho"], quantidadeUsos: 4, validadeDias: 30, preco: 240 },
-      { id: "pm_2banhos", nome: "Pacote 2 banhos", servicoIds: ["s_banho"], quantidadeUsos: 2, validadeDias: 30, preco: 130 },
-      { id: "pm_4banho_tosa", nome: "Pacote 4 banho e tosa", servicoIds: ["s_banho_tosa"], quantidadeUsos: 4, validadeDias: 45, preco: 340 },
+      { id: "pm_4banhos", nome: "Pacote 4 banhos", servicoIds: ["s_banho"], quantidadeUsos: 4, validadeDias: 30, preco: 240, ativo: true },
+      { id: "pm_2banhos", nome: "Pacote 2 banhos", servicoIds: ["s_banho"], quantidadeUsos: 2, validadeDias: 30, preco: 130, ativo: true },
+      { id: "pm_4banho_tosa", nome: "Pacote 4 banho e tosa", servicoIds: ["s_banho_tosa"], quantidadeUsos: 4, validadeDias: 45, preco: 340, ativo: true },
     ],
     planosPet,
     planoUsos,
@@ -228,5 +316,10 @@ export function criarSeed(agora: Date = new Date()): Db {
     etapas,
     posicoes,
     acertos: [],
+    produtos,
+    movimentos,
+    vendas,
+    vacinas,
+    resgates: [],
   };
 }

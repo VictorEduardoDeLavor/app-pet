@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useApp } from "@/data/store";
 import type { Especie, Pet, Porte } from "@/domain/types";
+import { Trash2 } from "lucide-react";
+import { bloqueioExcluirPet } from "@/domain/edicao";
 import { Botao, Campo, Folha, cx } from "./ui";
 import { useToast } from "./providers";
 
@@ -51,6 +53,9 @@ export function CamposPet({ valor, onChange }: { valor: Rascunho; onChange: (v: 
           <input className="input" inputMode="decimal" value={valor.pesoKg ?? ""} onChange={(e) => set("pesoKg", e.target.value ? Number(e.target.value.replace(",", ".")) : undefined)} />
         </Campo>
       </div>
+      <Campo rotulo="Nascimento (opcional)" dica={valor.nascimento ? idade(valor.nascimento) : "Para saber a idade e lembrar do aniversário."}>
+        <input className="input" type="date" max={new Date().toISOString().slice(0, 10)} value={valor.nascimento ?? ""} onChange={(e) => set("nascimento", e.target.value || undefined)} />
+      </Campo>
       <Campo rotulo="Pelagem">
         <input className="input" value={valor.pelagem ?? ""} onChange={(e) => set("pelagem", e.target.value || undefined)} placeholder="Ex.: longa, dupla" />
       </Campo>
@@ -68,6 +73,17 @@ export function CamposPet({ valor, onChange }: { valor: Rascunho; onChange: (v: 
       </Campo>
     </div>
   );
+}
+
+/** "3 anos e 2 meses" a partir da data de nascimento. */
+export function idade(nascimento: string, ref = new Date()): string {
+  const [a, m, d] = nascimento.split("-").map(Number);
+  let meses = (ref.getFullYear() - a) * 12 + (ref.getMonth() + 1 - m) - (ref.getDate() < d ? 1 : 0);
+  if (meses < 0) return "";
+  const anos = Math.floor(meses / 12);
+  meses %= 12;
+  if (anos === 0) return meses <= 1 ? "Filhote: menos de 2 meses" : `${meses} meses`;
+  return `${anos} ${anos === 1 ? "ano" : "anos"}${meses ? ` e ${meses} ${meses === 1 ? "mês" : "meses"}` : ""}`;
 }
 
 export function NovoPetFolha({ aberta, onFechar, tutorId }: { aberta: boolean; onFechar: () => void; tutorId: string }) {
@@ -95,13 +111,21 @@ export function NovoPetFolha({ aberta, onFechar, tutorId }: { aberta: boolean; o
   );
 }
 
-export function EditarPetFolha({ aberta, onFechar, pet }: { aberta: boolean; onFechar: () => void; pet: Pet }) {
+export function EditarPetFolha({ aberta, onFechar, pet, aoExcluir }: { aberta: boolean; onFechar: () => void; pet: Pet; aoExcluir?: () => void }) {
   const atualizar = useApp((s) => s.atualizarPet);
+  const excluir = useApp((s) => s.excluirPet);
+  const db = useApp((s) => s.db);
   const toast = useToast();
   const [r, setR] = useState<Rascunho>(pet);
+  const [confirmar, setConfirmar] = useState(false);
+  const bloqueio = bloqueioExcluirPet(db, pet.id);
   useEffect(() => {
-    if (aberta) setR(pet);
-  }, [aberta, pet]);
+    if (aberta) {
+      setR(pet);
+      setConfirmar(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberta]);
   return (
     <Folha aberta={aberta} onFechar={onFechar} titulo={`Editar ${pet.nome}`}>
       <CamposPet valor={r} onChange={setR} />
@@ -116,6 +140,39 @@ export function EditarPetFolha({ aberta, onFechar, pet }: { aberta: boolean; onF
       >
         Salvar alterações
       </Botao>
+      {aoExcluir && (
+        <div className="mt-6 border-t border-line pt-4">
+          {!confirmar ? (
+            <button type="button" onClick={() => (bloqueio ? toast(bloqueio, "erro") : setConfirmar(true))} className="flex items-center gap-1.5 text-[14px] font-medium text-bad-700">
+              <Trash2 className="h-4 w-4" />
+              Excluir {pet.nome}
+            </button>
+          ) : (
+            <div className="rounded-2xl bg-bad-50 px-4 py-3">
+              <p className="text-[14px] font-semibold text-bad-700">Excluir {pet.nome} de vez?</p>
+              <p className="mt-0.5 text-[13px] text-muted">Agendamentos em aberto e a carteira de vacinas dele também saem. Não dá para desfazer.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Botao variante="contorno" className="!h-11" onClick={() => setConfirmar(false)}>
+                  Manter
+                </Botao>
+                <Botao
+                  variante="perigo"
+                  className="!h-11"
+                  onClick={() => {
+                    const res = excluir(pet.id);
+                    if (!res.ok) return toast(res.erro, "erro");
+                    toast(`${pet.nome} excluído`);
+                    onFechar();
+                    aoExcluir();
+                  }}
+                >
+                  Excluir
+                </Botao>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Folha>
   );
 }

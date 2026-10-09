@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, CalendarDays, ChevronLeft, ChevronRight, Clock, Lock, Plus, ReceiptText } from "lucide-react";
+import { ArrowDown, ArrowUp, BarChart3, CalendarDays, ChevronLeft, ChevronRight, Clock, Ellipsis, Lock, Plus, ReceiptText, Trash2, Undo2 } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
-import type { FormaPagamento } from "@/domain/types";
+import type { FormaPagamento, Lancamento } from "@/domain/types";
+import { bloqueioExcluirLancamento, origemDoLancamento } from "@/domain/edicao";
 import { porId, resumoCaixa } from "@/domain/rules";
-import { NOME_FORMA, dataCurta, dataMedia, diferencaDias, hoje, horaDoIso, moeda, moedaCurta, somaDias } from "@/domain/format";
-import { Botao, Campo, Chip, Folha, PetAvatar, Titulo, cx } from "@/components/ui";
+import { NOME_FORMA, dataCurta, dataDoIso, dataMedia, diferencaDias, hoje, horaDoIso, lerNumero, moeda, moedaCurta, somaDias } from "@/domain/format";
+import { Botao, Campo, Chip, Folha, PetAvatar, Segmentado, Titulo, cx } from "@/components/ui";
 import { PagamentoFolha, SeletorForma } from "@/components/pagamento-folha";
 import { useToast } from "@/components/providers";
 
@@ -31,6 +32,7 @@ function Financeiro() {
   const r = resumoCaixa(db, data);
   const [pagando, setPagando] = useState<{ id?: string } | null>(null);
   const [despesa, setDespesa] = useState(false);
+  const [gerir, setGerir] = useState<string | null>(null);
   const [fechando, setFechando] = useState(false);
   const ehHoje = data === T;
   const irPara = (d: string) => router.replace(d === T ? "/financeiro" : `/financeiro?data=${d}`, { scroll: false });
@@ -41,7 +43,7 @@ function Financeiro() {
         acao={
           <button onClick={() => setDespesa(true)} className="tap flex items-center gap-1.5 rounded-full px-3 py-2 text-[15px] font-medium text-brand-600">
             <Plus className="h-[18px] w-[18px]" />
-            Despesa
+            Lançar
           </button>
         }
       >
@@ -107,10 +109,11 @@ function Financeiro() {
           <ul className="divide-y divide-line">
             {r.movimentos.map((l) => {
               const entrada = l.tipo === "receita";
-              const titulo = l.categoria === "Planos" ? "Venda de plano" : l.categoria === "Serviços" ? "Serviço pago" : l.descricao;
-              const detalhe = l.categoria === "Planos" || l.categoria === "Serviços" ? l.descricao.split(" · ").slice(1).join(" · ") || l.descricao : l.categoria;
+              const titulo = l.categoria === "Planos" ? "Venda de plano" : l.categoria === "Serviços" ? "Serviço pago" : l.categoria === "Sinal" ? "Sinal do agendamento online" : l.descricao;
+              const detalhe = ["Planos", "Serviços", "Sinal"].includes(l.categoria) ? l.descricao.split(" · ").slice(1).join(" · ") || l.descricao : l.categoria;
               return (
-                <li key={l.id} className="flex items-center gap-3 py-3">
+                <li key={l.id}>
+                  <button onClick={() => setGerir(l.id)} className="tap flex w-full items-center gap-3 py-3 text-left">
                   <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-full", entrada ? "bg-ok-50 text-ok-500" : "bg-bad-50 text-bad-500")}>
                     {entrada ? <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.4} /> : <ArrowDown className="h-[18px] w-[18px]" strokeWidth={2.4} />}
                   </span>
@@ -130,6 +133,7 @@ function Financeiro() {
                       Pago
                     </Chip>
                   </div>
+                  </button>
                 </li>
               );
             })}
@@ -150,8 +154,8 @@ function Financeiro() {
               const pet = atd ? porId(db.pets, atd.petId) : undefined;
               const dias = atd ? diferencaDias(atd.data, T) : 0;
               return (
-                <li key={l.id}>
-                  <button onClick={() => setPagando({ id: l.id })} className="tap flex w-full items-center gap-3 py-3 text-left">
+                <li key={l.id} className="flex items-center gap-1">
+                  <button onClick={() => setPagando({ id: l.id })} className="tap flex min-w-0 flex-1 items-center gap-3 py-3 text-left">
                     {pet ? <PetAvatar pet={pet} tamanho={40} /> : <ReceiptText className="h-10 w-10 p-2 text-muted" />}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[15px] font-medium">{l.descricao}</p>
@@ -166,6 +170,11 @@ function Financeiro() {
                       </Chip>
                     </div>
                   </button>
+                  {!l.atendimentoId && (
+                    <button aria-label="Opções" onClick={() => setGerir(l.id)} className="tap grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-surface">
+                      <Ellipsis className="h-4 w-4" />
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -182,13 +191,20 @@ function Financeiro() {
             Fechar caixa
           </Botao>
         )}
-        <Link href="/planos" className="block py-2 text-center text-[14px] font-medium text-brand-600">
-          Ver planos e pacotes
-        </Link>
+        <div className="flex justify-center gap-6">
+          <Link href="/relatorios" className="flex items-center gap-1.5 py-2 text-[14px] font-medium text-brand-600">
+            <BarChart3 className="h-4 w-4" />
+            Relatórios
+          </Link>
+          <Link href="/planos" className="block py-2 text-center text-[14px] font-medium text-brand-600">
+            Planos e pacotes
+          </Link>
+        </div>
       </div>
 
       <PagamentoFolha aberta={!!pagando} onFechar={() => setPagando(null)} lancamentoId={pagando?.id} />
-      <DespesaFolha aberta={despesa} onFechar={() => setDespesa(false)} />
+      <LancarFolha aberta={despesa} onFechar={() => setDespesa(false)} />
+      {gerir && <GerirLancamentoFolha lancamentoId={gerir} onFechar={() => setGerir(null)} />}
 
       <Folha aberta={fechando} onFechar={() => setFechando(false)} titulo="Fechar caixa de hoje">
         <dl className="space-y-2 rounded-2xl bg-surface px-4 py-4 text-[15px]">
@@ -219,31 +235,53 @@ function Financeiro() {
 }
 
 const CATEGORIAS = ["Produtos", "Materiais", "Aluguel", "Contas", "Equipe", "Outros"];
+const CATEGORIAS_RECEITA = ["Serviços", "Hospedagem", "Adestramento", "Produtos", "Outros"];
 
-function DespesaFolha({ aberta, onFechar }: { aberta: boolean; onFechar: () => void }) {
-  const lancar = useApp((s) => s.lancarDespesa);
+/** Despesa paga ou receita avulsa (recebida agora ou a receber). */
+function LancarFolha({ aberta, onFechar }: { aberta: boolean; onFechar: () => void }) {
+  const lancarDespesa = useApp((s) => s.lancarDespesa);
+  const lancarReceita = useApp((s) => s.lancarReceita);
   const toast = useToast();
+  const [tipo, setTipo] = useState<"despesa" | "receita">("despesa");
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
   const [categoria, setCategoria] = useState("Produtos");
-  const [forma, setForma] = useState<FormaPagamento>("pix");
+  const [forma, setForma] = useState<FormaPagamento | "depois">("pix");
+  const cats = tipo === "despesa" ? CATEGORIAS : CATEGORIAS_RECEITA;
 
   return (
-    <Folha aberta={aberta} onFechar={onFechar} titulo="Lançar despesa">
+    <Folha aberta={aberta} onFechar={onFechar} titulo={tipo === "despesa" ? "Lançar despesa" : "Lançar receita"}>
+      <Segmentado
+        className="mb-4"
+        valor={tipo}
+        onChange={(t) => {
+          setTipo(t);
+          setCategoria(t === "despesa" ? "Produtos" : "Serviços");
+          setForma("pix");
+        }}
+        opcoes={[
+          { valor: "despesa", rotulo: "Despesa" },
+          { valor: "receita", rotulo: "Receita avulsa" },
+        ]}
+      />
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          const r = lancar({ descricao, categoria, valor: Number(valor.replace(",", ".")), formaPagamento: forma });
+          const v = lerNumero(valor);
+          const r =
+            tipo === "despesa"
+              ? lancarDespesa({ descricao, categoria, valor: v, formaPagamento: forma === "depois" ? "pix" : forma })
+              : lancarReceita({ descricao, categoria, valor: v, formaPagamento: forma === "depois" ? undefined : forma });
           if (!r.ok) return toast(r.erro, "erro");
-          toast("Despesa lançada");
+          toast(tipo === "despesa" ? "Despesa lançada" : forma === "depois" ? "Receita a receber lançada" : "Receita lançada no caixa");
           setDescricao("");
           setValor("");
           onFechar();
         }}
       >
         <Campo rotulo="Descrição">
-          <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex.: Shampoo neutro 5 L" />
+          <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder={tipo === "despesa" ? "Ex.: Shampoo neutro 5 L" : "Ex.: Hospedagem do Thor (2 diárias)"} />
         </Campo>
         <Campo rotulo="Valor (R$)">
           <input className="input" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" />
@@ -251,7 +289,7 @@ function DespesaFolha({ aberta, onFechar }: { aberta: boolean; onFechar: () => v
         <div>
           <span className="label">Categoria</span>
           <div className="flex flex-wrap gap-2">
-            {CATEGORIAS.map((c) => (
+            {cats.map((c) => (
               <button
                 key={c}
                 type="button"
@@ -264,11 +302,88 @@ function DespesaFolha({ aberta, onFechar }: { aberta: boolean; onFechar: () => v
           </div>
         </div>
         <div>
-          <span className="label">Pago com</span>
-          <SeletorForma valor={forma} onChange={setForma} />
+          <span className="label">{tipo === "despesa" ? "Pago com" : "Recebido com"}</span>
+          {forma !== "depois" && <SeletorForma valor={forma} onChange={setForma} />}
+          {tipo === "receita" && (
+            <button
+              type="button"
+              onClick={() => setForma(forma === "depois" ? "pix" : "depois")}
+              className={cx("tap mt-2 w-full rounded-2xl border px-4 py-3 text-left text-[14px] font-medium", forma === "depois" ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}
+            >
+              {forma === "depois" ? "✓ Ainda não recebi (fica a receber)" : "Ainda não recebi"}
+            </button>
+          )}
         </div>
-        <Botao type="submit">Lançar despesa</Botao>
+        <Botao type="submit">{tipo === "despesa" ? "Lançar despesa" : "Lançar receita"}</Botao>
       </form>
+    </Folha>
+  );
+}
+
+/** Detalhe de um lançamento: desfazer recebimento ou excluir o que foi lançado por engano. */
+function GerirLancamentoFolha({ lancamentoId, onFechar }: { lancamentoId: string; onFechar: () => void }) {
+  const db = useDb();
+  const estornar = useApp((s) => s.estornarPagamento);
+  const excluir = useApp((s) => s.excluirLancamento);
+  const toast = useToast();
+  const [confirmar, setConfirmar] = useState<"estornar" | "excluir" | null>(null);
+  const l = porId(db.lancamentos, lancamentoId) as Lancamento | undefined;
+  if (!l) return null;
+  const origem = origemDoLancamento(db, l);
+  const bloqueioExcluir = bloqueioExcluirLancamento(db, l);
+  const podeEstornar = l.tipo === "receita" && l.status === "pago" && !origem && !(l.pagoEm && db.caixas.some((c) => c.data === dataDoIso(l.pagoEm!)));
+
+  return (
+    <Folha aberta onFechar={onFechar} titulo={l.tipo === "receita" ? "Receita" : "Despesa"}>
+      <div className="rounded-2xl bg-surface px-4 py-3">
+        <p className="text-[13px] text-muted">{l.categoria}</p>
+        <p className="text-[15px] font-semibold">{l.descricao}</p>
+        <p className={cx("mt-1 text-[24px] font-bold tracking-tight", l.tipo === "despesa" ? "text-bad-700" : "text-brand-700")}>{moeda(l.valor)}</p>
+        <p className="text-[12.5px] text-muted">
+          {l.status === "pago" ? `Pago em ${dataCurta(dataDoIso(l.pagoEm!))} às ${horaDoIso(l.pagoEm!)}${l.formaPagamento ? ` · ${NOME_FORMA[l.formaPagamento]}` : ""}` : "A receber"}
+        </p>
+      </div>
+      <div className="mt-4 space-y-2 pb-2">
+        {podeEstornar &&
+          (confirmar === "estornar" ? (
+            <Botao
+              variante="perigo"
+              onClick={() => {
+                const r = estornar(l.id);
+                if (!r.ok) return toast(r.erro, "erro");
+                toast("Recebimento desfeito: voltou para a receber");
+                onFechar();
+              }}
+            >
+              Confirmar: não foi recebido
+            </Botao>
+          ) : (
+            <button onClick={() => setConfirmar("estornar")} className="tap flex w-full items-center gap-3 rounded-2xl border border-line px-4 py-3.5 text-left text-[15px] font-medium">
+              <Undo2 className="h-5 w-5" />
+              Desfazer recebimento (registrado por engano)
+            </button>
+          ))}
+        {!bloqueioExcluir &&
+          (confirmar === "excluir" ? (
+            <Botao
+              variante="perigo"
+              onClick={() => {
+                const r = excluir(l.id);
+                if (!r.ok) return toast(r.erro, "erro");
+                toast("Lançamento excluído");
+                onFechar();
+              }}
+            >
+              Confirmar exclusão
+            </Botao>
+          ) : (
+            <button onClick={() => setConfirmar("excluir")} className="tap flex w-full items-center gap-3 rounded-2xl border border-line px-4 py-3.5 text-left text-[15px] font-medium text-bad-700">
+              <Trash2 className="h-5 w-5" />
+              Excluir lançamento
+            </button>
+          ))}
+        {!podeEstornar && bloqueioExcluir && <p className="text-[13.5px] text-muted">{bloqueioExcluir}</p>}
+      </div>
     </Folha>
   );
 }
