@@ -9,9 +9,10 @@ import type { Porte } from "@/domain/types";
 import type { AgendaPublica, Confirmacao, PedidoOnline, ServicoPublico } from "@/domain/agendamento-online";
 import { minutos } from "@/domain/format";
 import { FUSO_PADRAO, partesNoFuso } from "./cloud";
+import { urlPublica } from "@/lib/fotos";
 
 interface Resposta {
-  petshop: { nome: string; whatsapp: string | null; endereco: string | null; fuso: string | null; dias_abertos: number[]; abre: string; fecha: string; sinal_pct: number };
+  petshop: { nome: string; whatsapp: string | null; endereco: string | null; fuso: string | null; dias_abertos: number[]; abre: string; fecha: string; sinal_pct: number; logo_path?: string | null };
   servicos: { id: string; nome: string; categoria: ServicoPublico["categoria"]; precos: Partial<Record<Porte, { preco: number; duracao: number }>> | null }[];
   equipe: string[];
   ocupados: { p: string; i: string; f: string }[];
@@ -32,6 +33,7 @@ export async function buscarAgenda(sb: SupabaseClient, slug: string): Promise<Ag
       abre: r.petshop.abre,
       fecha: r.petshop.fecha,
       sinalPct: Number(r.petshop.sinal_pct) || 0,
+      logoUrl: r.petshop.logo_path ? urlPublica(sb, r.petshop.logo_path) : undefined,
     },
     servicos: r.servicos.map((s) => ({
       id: s.id,

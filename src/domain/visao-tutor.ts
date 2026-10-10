@@ -7,7 +7,7 @@ import { dataLonga } from "./format";
 import { cartao } from "./fidelidade";
 
 export interface VisaoTutor {
-  petshop: { nome: string; whatsapp?: string; fuso?: string };
+  petshop: { nome: string; whatsapp?: string; fuso?: string; logoUrl?: string };
   pet: { nome: string; raca?: string; especie: Especie; fotoUrl?: string };
   tutorNome: string;
   atendimento: {
@@ -39,7 +39,7 @@ export function visaoDoDb(db: Db, token: string): VisaoTutor | null {
   const pos = posicaoDoAtendimento(db, a.id);
   const rota = emRota(db, a.id);
   return {
-    petshop: { nome: db.petshop.nome, whatsapp: db.petshop.whatsapp },
+    petshop: { nome: db.petshop.nome, whatsapp: db.petshop.whatsapp, logoUrl: db.petshop.logoUrl },
     pet: { nome: pet?.nome ?? "Seu pet", raca: pet?.raca, especie: pet?.especie ?? "cao", fotoUrl: pet?.fotoUrl },
     tutorNome: tutor?.nome ?? "",
     atendimento: {

@@ -69,6 +69,8 @@ export interface Petshop {
   /** Serviços que contam selo. Vazio = banho e tosa. */
   fidelidadeServicoIds: string[];
   fidelidadePremio: string;
+  /** Logo do pet shop (URL pública ou, na demonstração, data URL). */
+  logoUrl?: string;
 }
 
 export interface Membro {

@@ -11,10 +11,11 @@ import { petsComPremio } from "@/domain/fidelidade";
 import { pode } from "@/domain/permissoes";
 import { atendimentosDoDia, clientesSumidos, emRota, kpisDoDia, planosAVencer, porId, prontosParaAvisar } from "@/domain/rules";
 import { dataLonga, diaCurto, hoje, horaAtual, horaDoIso, moeda, moedaCurta, primeiroNome, saudacao } from "@/domain/format";
-import { CapaFoto, Chip, Folha, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
+import { CapaFoto, Chip, Folha, LogoPetshop, NumeroVidro, Secao, StatusChip, Vazio, PetAvatar } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { FaixaAssinatura } from "@/components/portao";
 import { MARCA } from "@/lib/marca";
+import { AvisoInstalarApp } from "@/components/instalar-app";
 
 export default function Inicio() {
   const db = useDb();
@@ -48,12 +49,19 @@ export default function Inicio() {
   return (
     <div>
       <header className="flex items-center justify-between px-5 pt-6 lg:justify-end">
-        <div className="flex items-center gap-2.5 lg:hidden">
-          <PawPrint className="h-8 w-8 text-brand-600" strokeWidth={2.2} />
-          <div className="leading-tight">
-            <p className="text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</p>
-            <p className="text-[12.5px] text-muted">{db.petshop.nome}</p>
-          </div>
+        <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
+          <LogoPetshop url={db.petshop.logoUrl} tamanho={db.petshop.logoUrl ? 40 : 32} />
+          {db.petshop.logoUrl ? (
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-[18px] font-bold tracking-tight text-ink">{db.petshop.nome}</p>
+              <p className="text-[12.5px] text-muted">{MARCA.nome}</p>
+            </div>
+          ) : (
+            <div className="leading-tight">
+              <p className="text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</p>
+              <p className="text-[12.5px] text-muted">{db.petshop.nome}</p>
+            </div>
+          )}
         </div>
         <button onClick={() => setAvisos(true)} aria-label={`Avisos (${alertas.length})`} className="tap relative grid h-11 w-11 place-items-center rounded-full hover:bg-surface">
           <Bell className="h-[22px] w-[22px] text-ink" />
@@ -79,6 +87,7 @@ export default function Inicio() {
       </CapaFoto>
 
       <FaixaAssinatura className="mx-5 mt-4" />
+      <AvisoInstalarApp className="mx-5 mt-4" />
 
       {online.length > 0 && (
         <section className="mx-5 mt-4 rounded-[20px] border border-brand-200 bg-brand-50 px-4 py-3.5" aria-label="Pedidos online">

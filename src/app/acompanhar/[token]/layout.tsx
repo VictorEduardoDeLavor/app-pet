@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 type Dados = {
   pet?: { nome: string; foto_path: string | null };
-  petshop?: { nome: string };
+  petshop?: { nome: string; logo_path?: string | null };
   etapas?: { foto_path: string | null }[];
 };
 
@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
       const d = (await r.json()) as Dados | null;
       if (d?.pet && d.petshop) {
         titulo = `Acompanhe ${d.pet.nome} na ${d.petshop.nome}`;
-        const foto = [...(d.etapas ?? [])].reverse().find((e) => e.foto_path)?.foto_path ?? d.pet.foto_path;
+        const foto = [...(d.etapas ?? [])].reverse().find((e) => e.foto_path)?.foto_path ?? d.pet.foto_path ?? d.petshop.logo_path;
         if (foto) imagem = `${url}/storage/v1/object/public/fotos/${foto}`;
       }
     } catch {

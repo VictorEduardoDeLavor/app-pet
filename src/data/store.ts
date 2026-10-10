@@ -107,6 +107,8 @@ interface Estado {
   registrarEtapa: (input: { atendimentoId: string; etapa: Etapa; nota?: string; foto?: File | null }) => Promise<Resultado<AtendimentoEtapa>>;
   /** Troca (ou remove, com null) a foto do pet. */
   salvarFotoPet: (petId: string, foto: File | null) => Promise<Resultado>;
+  /** Troca (ou remove, com null) o logo do pet shop. */
+  salvarLogo: (foto: File | null) => Promise<Resultado>;
   /** Posição do carro no leva e traz (chamada pelo rastreio a cada poucos segundos). */
   enviarPosicao: (pos: Posicao) => void;
   registrarAcerto: (input: R.AcertoInput) => Resultado<R.ComissaoAcertoResultado>;
@@ -462,6 +464,31 @@ export const useApp = create<Estado>()(
           return aplicar(
             (db) => ({ db: R.atualizarPet(db, atualizado), valor: undefined }),
             (c, ps) => remoto.pet(c, ps, atualizado, false, fotoPath),
+          );
+        },
+
+        salvarLogo: async (foto) => {
+          const { modo, petshopId } = get();
+          let logoUrl: string | undefined;
+          let logoPath: string | null = null;
+          try {
+            if (foto) {
+              const opcoes = { maxLado: 512, maxMB: 0.15, tipo: "image/png" as const };
+              if (modo === "nuvem" && sb && petshopId) {
+                const blob = await reduzirFoto(foto, opcoes);
+                // Nome novo a cada troca, para o navegador não mostrar o logo antigo em cache.
+                logoPath = await subirFoto(sb, `${petshopId}/logo-${Date.now().toString(36)}.png`, blob, "image/png");
+                logoUrl = urlPublica(sb, logoPath);
+              } else {
+                logoUrl = await blobParaDataUrl(await reduzirFoto(foto, { ...opcoes, maxLado: 256, maxMB: 0.05 }));
+              }
+            }
+          } catch (e) {
+            return { ok: false, erro: e instanceof Error ? e.message : "Não foi possível enviar o logo." };
+          }
+          return aplicar(
+            (db) => ({ db: { ...db, petshop: { ...db.petshop, logoUrl } }, valor: undefined }),
+            (c, ps) => remoto.logo(c, ps, logoPath),
           );
         },
 

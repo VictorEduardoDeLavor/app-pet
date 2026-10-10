@@ -12,15 +12,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const BUCKET = "fotos";
 
-export async function reduzirFoto(arquivo: File, opcoes: { maxLado?: number; maxMB?: number } = {}): Promise<Blob> {
+export async function reduzirFoto(arquivo: File, opcoes: { maxLado?: number; maxMB?: number; tipo?: "image/jpeg" | "image/png" } = {}): Promise<Blob> {
   if (!arquivo.type.startsWith("image/")) throw new Error("Escolha uma foto.");
   return imageCompression(arquivo, {
     maxSizeMB: opcoes.maxMB ?? 0.3,
     maxWidthOrHeight: opcoes.maxLado ?? 1280,
     useWebWorker: true,
     libURL: "/vendor/browser-image-compression.js",
-    // JPEG abre em qualquer celular (WebP ainda falha em iPhones mais antigos).
-    fileType: "image/jpeg",
+    // JPEG abre em qualquer celular (WebP ainda falha em iPhones mais antigos). Logo vai em PNG para manter o fundo transparente.
+    fileType: opcoes.tipo ?? "image/jpeg",
     initialQuality: 0.82,
   });
 }
@@ -47,8 +47,8 @@ export async function apagarFoto(sb: SupabaseClient, path: string): Promise<void
 }
 
 /** Sobe a foto já reduzida e devolve o caminho no bucket. */
-export async function subirFoto(sb: SupabaseClient, path: string, blob: Blob): Promise<string> {
-  const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true, cacheControl: "31536000" });
+export async function subirFoto(sb: SupabaseClient, path: string, blob: Blob, contentType = "image/jpeg"): Promise<string> {
+  const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType, upsert: true, cacheControl: "31536000" });
   if (error) throw new Error(`Não foi possível enviar a foto: ${error.message}`);
   return path;
 }

@@ -22,6 +22,7 @@ export interface AgendaPublica {
     abre: string;
     fecha: string;
     sinalPct: number;
+    logoUrl?: string;
   };
   servicos: ServicoPublico[];
   /** Quem pode atender (banhistas e o dono). */
@@ -68,6 +69,7 @@ export function agendaDoDb(db: Db, de: string = hoje(), dias = 21): AgendaPublic
       abre: db.petshop.abre,
       fecha: db.petshop.fecha,
       sinalPct: db.petshop.pixChave ? db.petshop.sinalPct : 0,
+      logoUrl: db.petshop.logoUrl,
     },
     servicos: db.servicos
       .filter((s) => s.ativo)

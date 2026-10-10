@@ -3,6 +3,7 @@ import "@fontsource-variable/inter";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { MARCA } from "@/lib/marca";
+import { SCRIPT_INSTALACAO } from "@/lib/instalar-script";
 
 const SITE = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000";
 
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="pt-BR">
       <body className="antialiased">
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_INSTALACAO }} />
         <Providers>{children}</Providers>
       </body>
     </html>

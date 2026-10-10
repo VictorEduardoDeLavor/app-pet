@@ -171,7 +171,11 @@ function Formulario({ slug, agenda, demo, recarregar }: { slug: string; agenda: 
             </span>
             {demo && <Chip tom="warn">Demonstração</Chip>}
           </div>
-          <h1 className="mt-6 text-[28px] font-bold leading-tight tracking-tight">{ps.nome}</h1>
+          {ps.logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ps.logoUrl} alt={`Logo da ${ps.nome}`} className="mt-6 h-16 w-16 rounded-2xl bg-white object-contain p-1 shadow-lg" />
+          )}
+          <h1 className={cx("text-[28px] font-bold leading-tight tracking-tight", ps.logoUrl ? "mt-3" : "mt-6")}>{ps.nome}</h1>
           {ps.endereco && (
             <p className="mt-1 flex items-start gap-1.5 text-[13.5px] text-white/85">
               <MapPin className="mt-0.5 h-4 w-4 shrink-0" />

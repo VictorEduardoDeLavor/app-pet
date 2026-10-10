@@ -2,8 +2,8 @@
 
 // Dados do pet shop: contato, funcionamento, regras, agendamento online com sinal por Pix e cartão fidelidade.
 
-import { useEffect, useState, type ReactNode } from "react";
-import { CalendarClock, Copy, ExternalLink, Gift, Globe, MessageCircle, QrCode, Store } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarClock, Copy, ExternalLink, Gift, Globe, ImagePlus, MessageCircle, QrCode, Store } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { Petshop } from "@/domain/types";
 import { NOME_CHAVE, normalizarChavePix } from "@/domain/pix";
@@ -11,7 +11,7 @@ import { slugDoNome } from "@/domain/edicao";
 import { linkAgendar } from "@/domain/messages";
 import { servicosQueContam } from "@/domain/fidelidade";
 import { telefone } from "@/domain/format";
-import { Aviso, Botao, Campo, TituloVoltar, cx } from "@/components/ui";
+import { Aviso, Botao, Campo, LogoPetshop, TituloVoltar, cx } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useAssinatura } from "@/data/assinatura";
 import { liberadoPorDatas } from "@/domain/assinatura";
@@ -76,6 +76,7 @@ function Dados({ ps }: { ps: Petshop }) {
   const mudou = nome !== ps.nome || zap.replace(/\D/g, "") !== (ps.whatsapp ? telefone(ps.whatsapp).replace(/\D/g, "") : "") || endereco !== (ps.endereco ?? "");
   return (
     <Bloco icone={<Store />} titulo="Contato" sub="Aparece para o tutor no link de acompanhamento e na página de agendamento.">
+      <LogoDoPetshop ps={ps} />
       <Campo rotulo="Nome do pet shop">
         <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
       </Campo>
@@ -89,6 +90,62 @@ function Dados({ ps }: { ps: Petshop }) {
         Salvar contato
       </Botao>
     </Bloco>
+  );
+}
+
+/** Logo do pet shop: aparece no app, no link do tutor e na página de agendamento. */
+function LogoDoPetshop({ ps }: { ps: Petshop }) {
+  const salvarLogo = useApp((s) => s.salvarLogo);
+  const toast = useToast();
+  const entrada = useRef<HTMLInputElement>(null);
+  const [enviando, setEnviando] = useState(false);
+  const enviar = async (foto: File | null) => {
+    setEnviando(true);
+    const r = await salvarLogo(foto);
+    setEnviando(false);
+    if (!r.ok) return toast(r.erro, "erro");
+    toast(foto ? "Logo atualizado" : "Logo removido");
+  };
+  return (
+    <div className="flex items-center gap-4 rounded-2xl bg-surface px-4 py-3.5">
+      {ps.logoUrl ? (
+        <LogoPetshop url={ps.logoUrl} tamanho={64} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => entrada.current?.click()}
+          aria-label="Enviar logo"
+          className="tap grid h-16 w-16 shrink-0 place-items-center rounded-[28%] border-[1.5px] border-dashed border-brand-300 bg-white text-brand-600"
+        >
+          <ImagePlus className="h-6 w-6" />
+        </button>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[14.5px] font-semibold">Logo</p>
+        <p className="text-[12.5px] leading-snug text-muted">No topo do app, no link do tutor e na página de agendamento.</p>
+        <div className="mt-2 flex items-center gap-3">
+          <button type="button" disabled={enviando} onClick={() => entrada.current?.click()} className="text-[14px] font-semibold text-brand-700 disabled:opacity-50">
+            {enviando ? "Enviando…" : ps.logoUrl ? "Trocar" : "Enviar logo"}
+          </button>
+          {ps.logoUrl && !enviando && (
+            <button type="button" onClick={() => enviar(null)} className="text-[14px] font-medium text-muted">
+              Remover
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        ref={entrada}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) enviar(f);
+        }}
+      />
+    </div>
   );
 }
 

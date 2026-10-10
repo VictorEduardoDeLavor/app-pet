@@ -3,12 +3,25 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
-import { ArrowLeft, Cat, ChevronRight, Dog, X } from "lucide-react";
+import { ArrowLeft, Cat, ChevronRight, Dog, PawPrint, X } from "lucide-react";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
 import type { Pet, StatusAtendimento } from "@/domain/types";
 import { NOME_STATUS } from "@/domain/rules";
 
 export const cx = clsx;
+
+// ---------------------------------------------------------------------------
+// Marca do pet shop
+// ---------------------------------------------------------------------------
+
+/** Logo do pet shop, ou a pata do app quando ainda não tem logo. */
+export function LogoPetshop({ url, tamanho = 32, className }: { url?: string; tamanho?: number; className?: string }) {
+  if (!url) return <PawPrint className={cx("shrink-0 text-brand-600", className)} style={{ width: tamanho, height: tamanho }} strokeWidth={2.2} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="" width={tamanho} height={tamanho} className={cx("shrink-0 rounded-[28%] border border-line bg-white object-contain", className)} style={{ width: tamanho, height: tamanho }} />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Chips

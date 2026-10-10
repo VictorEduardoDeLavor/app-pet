@@ -10,7 +10,7 @@ import { urlPublica } from "@/lib/fotos";
 import { FUSO_PADRAO, partesNoFuso } from "./cloud";
 
 interface Resposta {
-  petshop: { nome: string; whatsapp: string | null; fuso: string | null };
+  petshop: { nome: string; whatsapp: string | null; fuso: string | null; logo_path?: string | null };
   pet: { nome: string; raca: string | null; especie: Especie; foto_path: string | null };
   tutor: { nome: string };
   atendimento: {
@@ -40,7 +40,7 @@ export async function buscarAcompanhamento(sb: SupabaseClient, token: string): P
   const { data: dia, hora } = partesNoFuso(r.atendimento.inicio, fuso);
   const foto = (p: string | null) => (p ? urlPublica(sb, p) : undefined);
   return {
-    petshop: { nome: r.petshop.nome, whatsapp: r.petshop.whatsapp ?? undefined, fuso },
+    petshop: { nome: r.petshop.nome, whatsapp: r.petshop.whatsapp ?? undefined, fuso, logoUrl: foto(r.petshop.logo_path ?? null) },
     pet: { nome: r.pet.nome, raca: r.pet.raca ?? undefined, especie: r.pet.especie, fotoUrl: foto(r.pet.foto_path) },
     tutorNome: r.tutor.nome,
     atendimento: {

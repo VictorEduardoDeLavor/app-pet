@@ -9,6 +9,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const chave = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let titulo = "Agende o banho do seu pet";
   let descricao = "Escolha o serviço, o dia e o horário em poucos toques.";
+  let imagem = "/fotos/capa-banho.webp";
 
   if (url && chave && /^[a-z0-9][a-z0-9-]{2,59}$/.test(slug)) {
     try {
@@ -18,10 +19,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
         body: JSON.stringify({ p_slug: slug, p_dias: 1 }),
         next: { revalidate: 600 },
       });
-      const d = (await r.json()) as { petshop?: { nome: string; endereco: string | null } } | null;
+      const d = (await r.json()) as { petshop?: { nome: string; endereco: string | null; logo_path?: string | null } } | null;
       if (d?.petshop) {
         titulo = `Agende online na ${d.petshop.nome}`;
         if (d.petshop.endereco) descricao = `Banho e tosa · ${d.petshop.endereco}`;
+        if (d.petshop.logo_path) imagem = `${url}/storage/v1/object/public/fotos/${d.petshop.logo_path}`;
       }
     } catch {
       // Sem prévia personalizada; a página continua funcionando.
@@ -31,7 +33,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return {
     title: titulo,
     description: descricao,
-    openGraph: { title: titulo, description: descricao, images: ["/fotos/capa-banho.webp"], type: "website" },
+    openGraph: { title: titulo, description: descricao, images: [imagem], type: "website" },
   };
 }
 

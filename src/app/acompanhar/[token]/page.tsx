@@ -122,8 +122,13 @@ function Visao({ v, demo, atualizadoEm }: { v: VisaoTutor; demo: boolean; atuali
         <img src={fotoCapa} alt={`Foto de ${v.pet.nome}`} className="absolute inset-0 h-full w-full object-cover" />
         <div aria-hidden className="absolute inset-0 bg-[linear-gradient(180deg,rgb(29_18_74/0.15)_0%,rgb(40_26_99/0.20)_40%,rgb(29_18_74/0.88)_100%)]" />
         <div className="vidro absolute left-4 top-[max(16px,env(safe-area-inset-top))] flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-white">
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-brand-600">
-            <PawPrint className="h-4 w-4" strokeWidth={2.4} />
+          <span className="grid h-7 w-7 place-items-center overflow-hidden rounded-full bg-white text-brand-600">
+            {v.petshop.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={v.petshop.logoUrl} alt="" className="h-full w-full object-contain" />
+            ) : (
+              <PawPrint className="h-4 w-4" strokeWidth={2.4} />
+            )}
           </span>
           <span className="max-w-[220px] truncate text-[13.5px] font-semibold">{v.petshop.nome}</span>
         </div>

@@ -13,6 +13,7 @@ import { produtosAbaixoDoMinimo } from "@/domain/produtos";
 import { useSessao, useToast } from "@/components/providers";
 import { useAssinatura } from "@/data/assinatura";
 import { situacao } from "@/domain/assinatura";
+import { InstalarApp } from "@/components/instalar-app";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const diasTexto = (dias: number[]) => (dias.length === 7 ? "todos os dias" : dias.map((d) => DIAS[d]).join(", "));
@@ -65,6 +66,8 @@ export default function Mais() {
           </div>
         </div>
       )}
+
+      <InstalarApp compacto className="mx-5 mb-4" />
 
       {temItens && (
         <ul className="mx-5 divide-y divide-line rounded-[20px] border border-line">

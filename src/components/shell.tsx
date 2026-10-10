@@ -17,7 +17,6 @@ import {
   LogOut,
   Menu,
   MessageCircle,
-  PawPrint,
   Scissors,
   Settings,
   ShoppingBag,
@@ -31,7 +30,7 @@ import { useApp, useDb, useEu } from "@/data/store";
 import type { Db, Membro, Papel } from "@/domain/types";
 import { NOME_PAPEL_CURTO, inicioDoPapel, pode, rotaPermitida, type Area } from "@/domain/permissoes";
 import { hoje, iniciais } from "@/domain/format";
-import { BotaoLink, Vazio, cx } from "./ui";
+import { BotaoLink, LogoPetshop, Vazio, cx } from "./ui";
 import { useSessao } from "./providers";
 import { MARCA } from "@/lib/marca";
 
@@ -197,11 +196,18 @@ function BarraLateral({ papel }: { papel: Papel }) {
   return (
     <aside aria-label="Menu" className="fixed inset-y-0 left-0 z-40 hidden w-[256px] flex-col border-r border-line bg-white px-4 pb-5 pt-6 lg:flex">
       <Link href={inicioDoPapel(papel)} className="flex items-center gap-2.5 px-2">
-        <PawPrint className="h-8 w-8 text-brand-600" strokeWidth={2.2} />
-        <span className="min-w-0 leading-tight">
-          <span className="block text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</span>
-          <span className="block truncate text-[12.5px] text-muted">{db.petshop.nome}</span>
-        </span>
+        <LogoPetshop url={db.petshop.logoUrl} tamanho={db.petshop.logoUrl ? 40 : 32} />
+        {db.petshop.logoUrl ? (
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-[16px] font-bold tracking-tight text-ink">{db.petshop.nome}</span>
+            <span className="block text-[12.5px] text-muted">{MARCA.nome}</span>
+          </span>
+        ) : (
+          <span className="min-w-0 leading-tight">
+            <span className="block text-[18px] font-bold tracking-tight text-brand-700">{MARCA.nome}</span>
+            <span className="block truncate text-[12.5px] text-muted">{db.petshop.nome}</span>
+          </span>
+        )}
       </Link>
 
       <nav className="no-scrollbar mt-7 flex-1 overflow-y-auto">

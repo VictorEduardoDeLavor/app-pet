@@ -198,6 +198,7 @@ export async function carregar(sb: Sb, userId: string): Promise<Carga> {
       fidelidadeMeta: n(petshop.fidelidade_meta) || 10,
       fidelidadeServicoIds: (petshop.fidelidade_servico_ids as string[]) ?? [],
       fidelidadePremio: (petshop.fidelidade_premio as string) || "1 banho grátis",
+      logoUrl: fotoUrl(sb, petshop.logo_path),
     },
     usuarioAtualId: eu.id as string,
     membros: membros.map((m): Membro => {
@@ -810,6 +811,9 @@ export const remoto = {
     if (d.fidelidadePremio !== undefined) linha.fidelidade_premio = d.fidelidadePremio;
     return ok(sb.from("petshops").update(linha).eq("id", ps).select("id"));
   },
+
+  /** Logo novo (caminho no bucket) ou null para tirar. */
+  logo: (sb: Sb, ps: string, path: string | null) => ok(sb.from("petshops").update({ logo_path: path }).eq("id", ps).select("id")),
 
   membro: (sb: Sb, ps: string, m: Membro) =>
     ok(sb.from("membros").insert({ id: m.id, petshop_id: ps, nome: m.nome, papel: m.papel, comissao_pct: m.comissaoPct, sem_comissao: !!m.semComissao, ativo: true })),
