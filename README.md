@@ -13,11 +13,19 @@ SaaS para pet shops e banho e tosa. Este repositório tem o **MVP para dono, rec
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 115 testes: regras de negócio, produtos, vacinas, fidelidade, Pix, relatórios, agendamento online, assinatura e schema do Supabase
+npm test           # 134 testes: regras de negócio, ficha do pet (raças, alergia), CEP, produtos, vacinas, fidelidade, Pix, relatórios, agendamento online, assinatura e schema do Supabase
 npm run build
 ```
 
-No celular, abra o endereço no navegador e use **Adicionar à tela inicial**.
+No celular, abra o endereço no navegador e toque em **Instalar o app** (em Mais, ou no aviso do Início). No iPhone o app mostra o passo a passo do Safari (Compartilhar › Adicionar à Tela de Início).
+
+## Novidades de 10/10 (feedback da Spike)
+
+- **Ficha do pet sem digitar**: raça com busca (cães e gatos em português, com apelidos como "Shitzu", "Lulu" e "SRD", em `src/domain/racas.ts`), pelagem, temperamento e alergia (Não tem / Sim e a quê) por toque, com "Outra" para texto livre. Ao gravar e ao importar planilha a raça vira o nome da lista e a alergia fica padronizada (`src/domain/ficha-pet.ts`). Pet bravo vira alerta; "não tem alergia" deixa de ser.
+- **Instalar o app**: cartão em Mais e aviso único no Início (botão no Android/computador, passo a passo no iPhone). Service worker mínimo (`public/sw.js`): deixa o app instalável e mostra "Sem internet"; não guarda telas nem dados em cache.
+- **Logo do pet shop** (Dados do pet shop): no topo do app, no menu do computador, no link do tutor, na página de agendamento e na prévia do link. Migration 0015.
+- **Endereço por CEP** (ViaCEP) no cadastro do tutor e no leva e traz; **WhatsApp direto na lista de clientes**.
+- **Novo pet shop pelo painel do administrador**: nome, dono, WhatsApp, endereço, modelo (padrão do app ou copiar serviços, preços, pacotes e mensagens de outro pet shop) e código de convite (ex.: SPIKE2, 14 dias). Também gera convite novo para o dono que ainda não entrou. Migration 0016.
 
 ## O que já funciona
 

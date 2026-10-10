@@ -8,6 +8,7 @@ import { normalizarWhatsapp } from "@/domain/format";
 import { Botao, Campo, TituloVoltar, cx } from "@/components/ui";
 import { CamposPet } from "@/components/pet-form";
 import { useToast } from "@/components/providers";
+import { CampoEndereco } from "@/components/campo-endereco";
 
 export default function NovoCliente() {
   const router = useRouter();
@@ -44,9 +45,7 @@ export default function NovoCliente() {
         <Campo rotulo="WhatsApp com DDD">
           <input className="input" inputMode="tel" value={zap} onChange={(e) => setZap(e.target.value)} placeholder="(11) 98765-4321" />
         </Campo>
-        <Campo rotulo="Endereço (opcional)">
-          <input className="input" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
-        </Campo>
+        <CampoEndereco rotulo="Endereço (opcional)" valor={endereco} onChange={setEndereco} />
         <label className="flex items-start gap-3 rounded-2xl bg-surface px-4 py-3 text-[14px]">
           <input type="checkbox" checked={consentimento} onChange={(e) => setConsentimento(e.target.checked)} className="mt-0.5 h-5 w-5 accent-brand-600" />
           <span>

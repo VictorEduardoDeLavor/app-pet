@@ -16,6 +16,7 @@ import { Botao, BotaoLink, Campo, Chip, Folha, PetAvatar, Secao, StatusChip, Tit
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { NovoPetFolha } from "@/components/pet-form";
 import { selosDoPet, temAlerta } from "@/domain/ficha-pet";
+import { CampoEndereco } from "@/components/campo-endereco";
 
 export default function ClienteDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -234,9 +235,7 @@ function EditarTutorFolha({ aberta, onFechar, tutor, aoExcluir }: { aberta: bool
         <Campo rotulo="E-mail (opcional)">
           <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Campo>
-        <Campo rotulo="Endereço (opcional)" dica="Usado no leva e traz.">
-          <input className="input" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
-        </Campo>
+        <CampoEndereco rotulo="Endereço (opcional)" valor={endereco} onChange={setEndereco} dica="Usado no leva e traz. Digite o CEP e o número para completar." />
         <label className="flex items-start gap-3 rounded-2xl bg-surface px-4 py-3 text-[14px]">
           <input type="checkbox" checked={consentimento} onChange={(e) => setConsentimento(e.target.checked)} className="mt-0.5 h-5 w-5 accent-brand-600" />
           <span>

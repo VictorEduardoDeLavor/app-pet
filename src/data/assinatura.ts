@@ -7,6 +7,7 @@ import { create } from "zustand";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assinaturaDemo, infoDoBanco, type InfoAssinatura } from "@/domain/assinatura";
 import { MARCA } from "@/lib/marca";
+import { pacotePadrao } from "./cloud";
 
 type Sb = SupabaseClient;
 
@@ -107,6 +108,51 @@ export interface PetshopAdmin {
   pets: number;
   atendimentos30d: number;
   ultimoAtendimento: string | null;
+}
+
+export interface NovoPetshopAdmin {
+  nome: string;
+  donoNome?: string;
+  whatsapp?: string;
+  endereco?: string;
+  /** Código de convite escolhido (6 letras, ex.: SPIKE2). Vazio = sorteado. */
+  codigo?: string;
+  /** Copiar serviços, preços, pacotes e mensagens deste pet shop. Vazio = padrão do app. */
+  modelo?: string;
+}
+
+export interface ConviteDono {
+  codigo: string;
+  expiraEm: string;
+}
+
+/** Painel do administrador: cadastra o pet shop do cliente e devolve o convite do dono. */
+export async function criarPetshopAdmin(sb: Sb, d: NovoPetshopAdmin): Promise<ConviteDono & { petshopId: string; slug: string }> {
+  const p = {
+    nome: d.nome.trim(),
+    dono_nome: d.donoNome?.trim() || null,
+    whatsapp: d.whatsapp?.trim() || null,
+    endereco: d.endereco?.trim() || null,
+    codigo: d.codigo?.trim() || null,
+    ...(d.modelo ? { modelo: d.modelo } : pacotePadrao()),
+  };
+  const { data, error } = await sb.rpc("admin_criar_petshop", { p });
+  if (error) throw new Error(error.message);
+  const r = data as { petshop_id: string; slug: string; codigo: string; expira_em: string };
+  return { petshopId: r.petshop_id, slug: r.slug, codigo: r.codigo, expiraEm: r.expira_em };
+}
+
+/** Convite novo para o dono que ainda não entrou no app. */
+export async function conviteDonoAdmin(sb: Sb, petshopId: string, codigo?: string): Promise<ConviteDono> {
+  const { data, error } = await sb.rpc("admin_convite_dono", { p_petshop: petshopId, p_codigo: codigo?.trim() || null });
+  if (error) throw new Error(error.message);
+  const r = data as { codigo: string; expira_em: string };
+  return { codigo: r.codigo, expiraEm: r.expira_em };
+}
+
+/** Link que o dono abre para criar a conta já com o convite preenchido. */
+export function linkConvite(codigo: string, origem = typeof window !== "undefined" ? window.location.origin : ""): string {
+  return `${origem}/entrar?convite=${codigo}`;
 }
 
 export async function listarPetshopsAdmin(sb: Sb): Promise<PetshopAdmin[]> {

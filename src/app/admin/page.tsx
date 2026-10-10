@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Ban, CalendarPlus, CircleCheck, CircleDollarSign, CreditCard, LockOpen, MessageCircle, PlugZap, RefreshCw, Search, ShieldCheck, Store, TriangleAlert, Unlock } from "lucide-react";
+import { ArrowLeft, Ban, CalendarPlus, CircleCheck, CircleDollarSign, Copy, CreditCard, KeyRound, LockOpen, MessageCircle, PlugZap, Plus, RefreshCw, Search, ShieldCheck, Store, TriangleAlert, Unlock } from "lucide-react";
 import {
   ajustarAssinaturaAdmin,
   conectarAsaas,
+  conviteDonoAdmin,
+  criarPetshopAdmin,
+  linkConvite,
+  type ConviteDono,
   listarPetshopsAdmin,
   sincronizarAdmin,
   souAdmin,
@@ -19,6 +23,7 @@ import { situacao } from "@/domain/assinatura";
 import { supabase } from "@/lib/supabase/client";
 import { MARCA } from "@/lib/marca";
 import { Botao, Campo, Chip, Folha, Vazio, cx } from "@/components/ui";
+import { CampoEndereco } from "@/components/campo-endereco";
 import { useToast } from "@/components/providers";
 
 const moeda = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -46,6 +51,7 @@ export default function Admin() {
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [aberto, setAberto] = useState<PetshopAdmin | null>(null);
+  const [novo, setNovo] = useState(false);
   const toast = useToast();
 
   const carregar = useCallback(async () => {
@@ -97,13 +103,17 @@ export default function Admin() {
         <Link href="/" aria-label="Voltar" className="tap grid h-10 w-10 place-items-center rounded-full hover:bg-surface">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-brand-600">{MARCA.nome}</p>
           <h1 className="text-[24px] font-bold tracking-tight">Painel do administrador</h1>
         </div>
         <button onClick={() => carregar()} aria-label="Atualizar" className="tap grid h-10 w-10 place-items-center rounded-full hover:bg-surface">
           <RefreshCw className="h-5 w-5 text-muted" />
         </button>
+        <Botao className="!h-10 !w-auto shrink-0 whitespace-nowrap px-4 text-[14px]" icone={<Plus className="h-4 w-4" />} onClick={() => setNovo(true)}>
+          <span className="sm:hidden">Novo</span>
+          <span className="hidden sm:inline">Novo pet shop</span>
+        </Botao>
       </header>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -161,6 +171,7 @@ export default function Admin() {
       )}
 
       <AcoesFolha p={aberto} onFechar={() => setAberto(null)} onFeito={() => carregar()} />
+      <NovoPetshopFolha aberta={novo} onFechar={() => setNovo(false)} modelos={lista} onCriado={() => carregar()} />
     </main>
   );
 }
@@ -326,6 +337,7 @@ function AcoesFolha({ p, onFechar, onFeito }: { p: PetshopAdmin | null; onFechar
             <MessageCircle className="h-5 w-5" /> Chamar no WhatsApp
           </a>
         )}
+        {!p.email && <ConviteDoDono p={p} />}
         <div className="grid grid-cols-2 gap-2">
           <Botao variante="contorno" disabled={enviando} onClick={() => fazer("estender_teste", 7, "Teste estendido em 7 dias.")} icone={<CalendarPlus className="h-4 w-4" />}>
             +7 dias de teste
@@ -393,6 +405,185 @@ function AcoesFolha({ p, onFechar, onFeito }: { p: PetshopAdmin | null; onFechar
           </Botao>
         )}
       </div>
+    </Folha>
+  );
+}
+
+/** Texto pronto para mandar ao dono com o link do convite. */
+function mensagemConvite(nome: string, dono: string | null, c: ConviteDono) {
+  const ola = dono && dono !== "Dono" ? `Olá, ${dono.split(" ")[0]}!` : "Olá!";
+  return `${ola} O app do ${nome} está pronto.\n\n1. Abra ${linkConvite(c.codigo)}\n2. Crie sua conta com e-mail e senha\n3. O código ${c.codigo} já vem preenchido (vale até ${data(c.expiraEm)})\n\nNo celular, depois de entrar, toque em "Instalar o app" para ficar com o ícone na tela.`;
+}
+
+function CartaoConvite({ nome, dono, whatsapp, convite }: { nome: string; dono: string | null; whatsapp: string | null; convite: ConviteDono }) {
+  const toast = useToast();
+  const texto = mensagemConvite(nome, dono, convite);
+  return (
+    <div className="rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3.5">
+      <p className="text-[12.5px] font-medium text-muted">Convite do dono · vale até {data(convite.expiraEm)}</p>
+      <p className="mt-1 font-mono text-[28px] font-bold tracking-[0.18em] text-brand-700">{convite.codigo}</p>
+      <p className="mt-1 break-all text-[12.5px] text-muted">{linkConvite(convite.codigo)}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Botao
+          variante="contorno"
+          className="!h-11"
+          icone={<Copy className="h-4 w-4" />}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(texto);
+              toast("Mensagem copiada");
+            } catch {
+              toast("Não deu para copiar. Selecione o código à mão.", "erro");
+            }
+          }}
+        >
+          Copiar texto
+        </Botao>
+        {whatsapp ? (
+          <a
+            href={`https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(texto)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="tap flex h-11 items-center justify-center gap-2 rounded-2xl bg-ok-500 text-[14.5px] font-semibold text-white"
+          >
+            <MessageCircle className="h-4 w-4" /> WhatsApp
+          </a>
+        ) : (
+          <span />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Dono que ainda não entrou: gera (ou renova) o convite de 14 dias. */
+function ConviteDoDono({ p }: { p: PetshopAdmin }) {
+  const toast = useToast();
+  const [convite, setConvite] = useState<ConviteDono | null>(null);
+  const [codigo, setCodigo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  if (convite) return <CartaoConvite nome={p.nome} dono={p.dono} whatsapp={p.whatsapp} convite={convite} />;
+  return (
+    <div className="rounded-2xl border border-line px-4 py-3.5">
+      <p className="flex items-center gap-2 text-[14.5px] font-semibold">
+        <KeyRound className="h-4 w-4 text-brand-600" /> O dono ainda não entrou no app
+      </p>
+      <p className="mt-0.5 text-[12.5px] text-muted">Gere um convite novo (vale 14 dias). O anterior deixa de valer.</p>
+      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+        <input className="input !h-11 uppercase" maxLength={6} placeholder="Código (opcional)" value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())} />
+        <Botao
+          className="!h-11 !w-auto px-4"
+          disabled={enviando}
+          onClick={async () => {
+            setEnviando(true);
+            try {
+              setConvite(await conviteDonoAdmin(supabase(), p.id, codigo));
+            } catch (e) {
+              toast(e instanceof Error ? e.message : "Não foi possível gerar o convite.", "erro");
+            } finally {
+              setEnviando(false);
+            }
+          }}
+        >
+          Gerar convite
+        </Botao>
+      </div>
+    </div>
+  );
+}
+
+/** Cadastro do pet shop de um cliente, a partir do padrão do app ou copiando outro pet shop. */
+function NovoPetshopFolha({ aberta, onFechar, modelos, onCriado }: { aberta: boolean; onFechar: () => void; modelos: PetshopAdmin[]; onCriado: () => void }) {
+  const toast = useToast();
+  const [nome, setNome] = useState("");
+  const [dono, setDono] = useState("");
+  const [zap, setZap] = useState("");
+  const [endereco, setEndereco] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [modelo, setModelo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [criado, setCriado] = useState<(ConviteDono & { slug: string; nome: string; dono: string; whatsapp: string | null }) | null>(null);
+
+  useEffect(() => {
+    if (!aberta) return;
+    setNome("");
+    setDono("");
+    setZap("");
+    setEndereco("");
+    setCodigo("");
+    setModelo("");
+    setCriado(null);
+  }, [aberta]);
+
+  const zapDigitos = zap.replace(/\D/g, "");
+  const zapCompleto = zapDigitos ? (zapDigitos.startsWith("55") ? zapDigitos : `55${zapDigitos}`) : null;
+
+  async function criar() {
+    if (nome.trim().length < 2) return toast("Informe o nome do pet shop.", "erro");
+    setEnviando(true);
+    try {
+      const r = await criarPetshopAdmin(supabase(), { nome, donoNome: dono, whatsapp: zapCompleto ?? undefined, endereco, codigo, modelo: modelo || undefined });
+      setCriado({ ...r, nome: nome.trim(), dono: dono.trim(), whatsapp: zapCompleto });
+      toast("Pet shop criado");
+      onCriado();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Não foi possível criar.", "erro");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <Folha aberta={aberta} onFechar={onFechar} titulo={criado ? "Pet shop criado" : "Novo pet shop"}>
+      {criado ? (
+        <div className="space-y-4 pb-2">
+          <p className="text-[14px] text-muted">
+            <b className="text-ink">{criado.nome}</b> está pronto, com 14 dias de teste. Mande o convite para {criado.dono || "o dono"}: ele cria a conta, aceita os termos e já cai no app.
+          </p>
+          <CartaoConvite nome={criado.nome} dono={criado.dono || null} whatsapp={criado.whatsapp} convite={criado} />
+          <p className="text-[12.5px] text-muted">Página de agendamento (o dono liga em Dados do pet shop): /agendar/{criado.slug}</p>
+          <Botao variante="contorno" onClick={onFechar}>
+            Fechar
+          </Botao>
+        </div>
+      ) : (
+        <div className="space-y-4 pb-2">
+          <Campo rotulo="Nome do pet shop">
+            <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Spike Banho & Tosa" />
+          </Campo>
+          <div className="grid grid-cols-2 gap-3">
+            <Campo rotulo="Nome do dono">
+              <input className="input" value={dono} onChange={(e) => setDono(e.target.value)} />
+            </Campo>
+            <Campo rotulo="WhatsApp">
+              <input className="input" inputMode="tel" value={zap} onChange={(e) => setZap(e.target.value)} placeholder="(11) 97520-1421" />
+            </Campo>
+          </div>
+          <CampoEndereco rotulo="Endereço (opcional)" valor={endereco} onChange={setEndereco} />
+          <div>
+            <span className="label">Serviços, preços e mensagens</span>
+            <div className="flex flex-wrap gap-2">
+              {[{ id: "", nome: "Padrão do app" }, ...modelos.map((m) => ({ id: m.id, nome: `Copiar de ${m.nome}` }))].map((m) => (
+                <button
+                  key={m.id || "padrao"}
+                  type="button"
+                  onClick={() => setModelo(m.id)}
+                  className={cx("tap rounded-xl border px-3.5 py-2.5 text-[14px] font-medium", modelo === m.id ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}
+                >
+                  {m.nome}
+                </button>
+              ))}
+            </div>
+            <span className="mt-1.5 block text-[12.5px] text-muted">Copiar traz os serviços ativos, preços por porte, pacotes e mensagens. Clientes e agenda não vêm.</span>
+          </div>
+          <Campo rotulo="Código do convite (opcional)" dica="6 letras ou números, sem 0, O, 1, I e L. Ex.: SPIKE2. Vazio = sorteado.">
+            <input className="input uppercase" maxLength={6} value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())} />
+          </Campo>
+          <Botao disabled={enviando} onClick={criar} icone={<Store className="h-[18px] w-[18px]" />}>
+            {enviando ? "Criando…" : "Criar pet shop e convite"}
+          </Botao>
+        </div>
+      )}
     </Folha>
   );
 }

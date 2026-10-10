@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronRight, FileUp, Search, TriangleAlert, UserPlus, Users } from "lucide-react";
+import { FileUp, MessageCircle, Search, TriangleAlert, UserPlus, Users } from "lucide-react";
 import { useDb } from "@/data/store";
 import { clientesSumidos, petsDoTutor, planoAtivoDoPet } from "@/domain/rules";
-import { hoje, telefone } from "@/domain/format";
+import { hoje, primeiroNome, telefone } from "@/domain/format";
+import { linkWhatsapp } from "@/domain/messages";
 import { Chip, Filtros, PetAvatar, Titulo, Vazio } from "@/components/ui";
 import { temAlerta } from "@/domain/ficha-pet";
 
@@ -89,8 +90,8 @@ export default function Clientes() {
             const alerta = pets.some(temAlerta);
             const comPlano = pets.some((p) => planoAtivoDoPet(db, p.id, T));
             return (
-              <li key={t.id}>
-                <Link href={`/clientes/${t.id}`} className="tap card flex items-center gap-3 px-4 py-3.5">
+              <li key={t.id} className="card flex items-center">
+                <Link href={`/clientes/${t.id}`} className="tap flex min-w-0 flex-1 items-center gap-3 py-3.5 pl-4 pr-1">
                   <div className="flex -space-x-3">
                     {pets.slice(0, 2).map((p) => (
                       <span key={p.id} className="rounded-full ring-2 ring-white">
@@ -116,8 +117,17 @@ export default function Clientes() {
                       </div>
                     )}
                   </div>
-                  <ChevronRight className="h-5 w-5 text-subtle" />
                 </Link>
+                <a
+                  href={linkWhatsapp(t.whatsapp, `Olá, ${primeiroNome(t.nome)}! Aqui é da ${db.petshop.nome}.`)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Abrir o WhatsApp de ${t.nome}`}
+                  title="WhatsApp"
+                  className="tap mr-2 grid h-11 w-11 shrink-0 place-items-center rounded-full text-ok-700 hover:bg-ok-50"
+                >
+                  <MessageCircle className="h-[21px] w-[21px]" />
+                </a>
               </li>
             );
           })}

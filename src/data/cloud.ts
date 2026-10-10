@@ -496,6 +496,28 @@ function slugify(nome: string) {
   return `${base || "petshop"}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/** Pacotes que todo pet shop novo já recebe (ids dos serviços padrão). */
+const PLANOS_PADRAO = [
+  { nome: "Pacote 4 banhos", servicos: ["s_banho"], quantidade_usos: 4, validade_dias: 30, preco: 240 },
+  { nome: "Pacote 2 banhos", servicos: ["s_banho"], quantidade_usos: 2, validade_dias: 30, preco: 130 },
+  { nome: "Pacote 4 banho e tosa", servicos: ["s_banho_tosa"], quantidade_usos: 4, validade_dias: 45, preco: 340 },
+];
+
+/** Serviços, preços, pacotes e mensagens padrão no formato de admin_criar_petshop (o mesmo do cadastro sozinho). */
+export function pacotePadrao() {
+  return {
+    servicos: SERVICOS.map((s) => ({
+      id: s.id,
+      nome: s.nome,
+      categoria: s.categoria,
+      comissao_pct: s.comissaoPct,
+      precos: Object.fromEntries((Object.keys(s.precos) as Porte[]).map((porte) => [porte, { preco: s.precos[porte].preco, duracao: s.precos[porte].duracaoMin }])),
+    })),
+    planos: PLANOS_PADRAO,
+    mensagens: MODELOS_PADRAO.map((m) => ({ gatilho: m.gatilho, titulo: m.titulo, texto: m.texto })),
+  };
+}
+
 export async function criarPetshop(sb: Sb, input: { nome: string; donoNome: string; whatsapp?: string; termos?: string }) {
   if (input.nome.trim().length < 2) throw new ErroRegra("Informe o nome do pet shop.");
   const ps = (await ok(
@@ -532,11 +554,16 @@ export async function criarPetshop(sb: Sb, input: { nome: string; donoNome: stri
     ),
   );
   await ok(
-    sb.from("planos_modelo").insert([
-      { petshop_id: psId, nome: "Pacote 4 banhos", servico_ids: [mapa.get("s_banho")], quantidade_usos: 4, validade_dias: 30, preco: 240 },
-      { petshop_id: psId, nome: "Pacote 2 banhos", servico_ids: [mapa.get("s_banho")], quantidade_usos: 2, validade_dias: 30, preco: 130 },
-      { petshop_id: psId, nome: "Pacote 4 banho e tosa", servico_ids: [mapa.get("s_banho_tosa")], quantidade_usos: 4, validade_dias: 45, preco: 340 },
-    ]),
+    sb.from("planos_modelo").insert(
+      PLANOS_PADRAO.map((pl) => ({
+        petshop_id: psId,
+        nome: pl.nome,
+        servico_ids: pl.servicos.map((id) => mapa.get(id)),
+        quantidade_usos: pl.quantidade_usos,
+        validade_dias: pl.validade_dias,
+        preco: pl.preco,
+      })),
+    ),
   );
   await ok(
     sb.from("mensagem_modelos").insert(MODELOS_PADRAO.map((m) => ({ petshop_id: psId, gatilho: m.gatilho, titulo: m.titulo, texto: m.texto, ativo: true }))),

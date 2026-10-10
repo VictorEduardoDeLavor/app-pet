@@ -692,4 +692,61 @@ describe("schema Supabase", () => {
   it("slug do link de agendamento só aceita letras minúsculas, números e hífen", async () => {
     await expect(db.query(`update petshops set slug = 'Meu Pet!' where id = $1`, [A])).rejects.toThrow(/petshops_slug_formato/);
   });
+  // -------------------------------------------------------------------------
+  // 0016: novo pet shop pelo painel do administrador, a partir de um modelo
+  // -------------------------------------------------------------------------
+
+  it("admin cria pet shop pelo modelo padrão ou copiando outro, com convite do dono", async () => {
+    const U_ADMIN = "00000000-0000-0000-0000-0000000000ad";
+    const U_DONA = "00000000-0000-0000-0000-0000000000e1";
+    await db.query(`insert into auth.users values ($1, 'victor@app.com') on conflict do nothing`, [U_ADMIN]);
+    await db.query(`insert into plataforma_admins (user_id) values ($1) on conflict do nothing`, [U_ADMIN]);
+    await db.query(`insert into auth.users values ($1, 'dona@banhofeliz.com')`, [U_DONA]);
+    const criar = (p: object, quem = U_ADMIN) => como(quem, () => um<{ r: { petshop_id: string; slug: string; codigo: string; expira_em: string } }>(`select admin_criar_petshop($1::jsonb) as r`, [JSON.stringify(p)]));
+
+    await expect(criar({ nome: "Banho Feliz" }, U_ANA)).rejects.toThrow(/Só o administrador/);
+    await expect(anon(() => db.query(`select admin_criar_petshop('{}'::jsonb)`))).rejects.toThrow(/permission denied/);
+
+    const padrao = {
+      nome: "Banho Feliz", whatsapp: "(11) 98888-7777", endereco: "Rua A, 1", dono_nome: "Joana", codigo: "feliz2",
+      servicos: [
+        { id: "s_banho", nome: "Banho", categoria: "banho", comissao_pct: 40, precos: { P: { preco: 40, duracao: 60 }, M: { preco: 50, duracao: 60 } } },
+        { id: "s_tosa", nome: "Tosa", categoria: "tosa", comissao_pct: 40, precos: { P: { preco: 60, duracao: 90 } } },
+      ],
+      planos: [{ nome: "4 banhos", servicos: ["s_banho"], quantidade_usos: 4, validade_dias: 30, preco: 150 }],
+      mensagens: [{ gatilho: "confirmacao", titulo: "Confirmar", texto: "Olá, {tutor}!" }],
+    };
+    const r1 = (await criar(padrao)).r;
+    expect(r1).toMatchObject({ slug: "banho-feliz", codigo: "FELIZ2" });
+    const ps = await um<{ whatsapp: string; endereco: string; termos_versao: string | null }>(`select whatsapp, endereco, termos_versao from petshops where id = $1`, [r1.petshop_id]);
+    expect(ps).toEqual({ whatsapp: "11988887777", endereco: "Rua A, 1", termos_versao: null });
+    expect((await um<{ n: number }>(`select count(*)::int as n from servico_precos where petshop_id = $1`, [r1.petshop_id])).n).toBe(3);
+    const pl = await um<{ ok: boolean }>(`select pm.servico_ids[1] = s.id as ok from planos_modelo pm join servicos s on s.petshop_id = pm.petshop_id and s.nome = 'Banho' where pm.petshop_id = $1`, [r1.petshop_id]);
+    expect(pl.ok).toBe(true);
+    expect((await um<{ n: number }>(`select count(*)::int as n from assinaturas where petshop_id = $1 and teste_ate > now() + interval '13 days'`, [r1.petshop_id])).n).toBe(1);
+    expect((await um<{ user_id: string | null; nome: string }>(`select user_id, nome from membros where petshop_id = $1`, [r1.petshop_id]))).toEqual({ user_id: null, nome: "Joana" });
+
+    // Mesmo nome: endereço da página ganha -2; código já usado é recusado.
+    await expect(criar({ ...padrao })).rejects.toThrow(/já foi usado/);
+    const r2 = (await criar({ ...padrao, codigo: "" })).r;
+    expect(r2.slug).toBe("banho-feliz-2");
+    expect(r2.codigo).toMatch(/^[A-Z2-9]{6}$/);
+
+    // Copiando do pet shop A: mesmos serviços ativos, preços e mensagens.
+    const r3 = (await criar({ nome: "Cópia da Patinhas", modelo: A })).r;
+    const conta = (tabela: string, ps: string) => um<{ n: number }>(`select count(*)::int as n from ${tabela} where petshop_id = $1`, [ps]).then((x) => x.n);
+    expect(await conta("servicos", r3.petshop_id)).toBe((await um<{ n: number }>(`select count(*)::int as n from servicos where petshop_id = $1 and ativo`, [A])).n);
+    expect(await conta("servico_precos", r3.petshop_id)).toBeGreaterThanOrEqual(0);
+    expect(await conta("mensagem_modelos", r3.petshop_id)).toBe(await conta("mensagem_modelos", A));
+    expect(await conta("tutores", r3.petshop_id)).toBe(0);
+
+    // A dona entra com o convite e vira dona; depois disso não há convite novo para ela.
+    const entrou = await como(U_DONA, () => um<{ p: string }>(`select aceitar_convite('feliz2') as p`));
+    expect(entrou.p).toBe(r1.petshop_id);
+    expect((await um<{ papel: string }>(`select papel from membros where petshop_id = $1 and user_id = $2`, [r1.petshop_id, U_DONA])).papel).toBe("dono");
+    await expect(como(U_ADMIN, () => db.query(`select admin_convite_dono($1)`, [r1.petshop_id]))).rejects.toThrow(/já entra no app/);
+    const novo = await como(U_ADMIN, () => um<{ c: { codigo: string } }>(`select admin_convite_dono($1) as c`, [r2.petshop_id]));
+    expect(novo.c.codigo).toMatch(/^[A-Z2-9]{6}$/);
+    expect(novo.c.codigo).not.toBe(r2.codigo);
+  });
 });

@@ -7,8 +7,9 @@ import { Car } from "lucide-react";
 import { useApp, useDb } from "@/data/store";
 import type { Transporte } from "@/domain/types";
 import { NOME_TRANSPORTE, motoristas, porId } from "@/domain/rules";
-import { Botao, Campo, Folha, cx } from "./ui";
+import { Botao, Folha, cx } from "./ui";
 import { useToast } from "./providers";
+import { CampoEndereco } from "./campo-endereco";
 
 export interface ValorTransporte {
   transporte: Transporte;
@@ -40,15 +41,11 @@ export function CamposTransporte({ valor, onChange }: { valor: ValorTransporte; 
       </div>
       {valor.transporte !== "nenhum" && (
         <>
-          <Campo rotulo="Endereço" dica="O motorista abre a rota no Google Maps com um toque.">
-            <input
-              className="input"
-              value={valor.enderecoTransporte}
-              onChange={(e) => onChange({ ...valor, enderecoTransporte: e.target.value })}
-              placeholder="Rua, número, bairro"
-              autoComplete="street-address"
-            />
-          </Campo>
+          <CampoEndereco
+            valor={valor.enderecoTransporte}
+            onChange={(v) => onChange({ ...valor, enderecoTransporte: v })}
+            dica="O motorista abre a rota no Google Maps com um toque. CEP e número completam o endereço."
+          />
           <div>
             <span className="label">Motorista</span>
             <div className="flex flex-wrap gap-2">
