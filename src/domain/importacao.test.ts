@@ -31,8 +31,8 @@ describe("importar clientes por planilha", () => {
       ["Thor", "G", "cao"],
       ["Mel", "P", "cao"],
     ]);
-    expect(p.tutores.find((t) => t.nome === "Rafael Souza")!.pets[0]).toMatchObject({ nome: "Luna", especie: "gato", sexo: "F", raca: "SRD" });
-    expect(carla.pets[1].raca).toBe("Shih Tzu");
+    expect(p.tutores.find((t) => t.nome === "Rafael Souza")!.pets[0]).toMatchObject({ nome: "Luna", especie: "gato", sexo: "F", raca: "Sem raça definida" });
+    expect(carla.pets[1].raca).toBe("Shih-tzu");
 
     const r = aplicarImportacao(db, p, new Date());
     expect(r.tutores).toHaveLength(2);

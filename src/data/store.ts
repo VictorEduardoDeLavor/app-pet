@@ -40,6 +40,7 @@ import * as P from "@/domain/produtos";
 import * as V from "@/domain/vacinas";
 import * as F from "@/domain/fidelidade";
 import { agendarNoDb, type Confirmacao, type PedidoOnline } from "@/domain/agendamento-online";
+import { normalizarFicha } from "@/domain/ficha-pet";
 
 type Resultado<T = void> = { ok: true; valor: T } | { ok: false; erro: string };
 export type Modo = "demo" | "nuvem";
@@ -329,7 +330,8 @@ export const useApp = create<Estado>()(
             (c, ps, r) => remoto.importar(c, ps, r.tutores, r.pets),
           ),
 
-        atualizarPet: (pet) => {
+        atualizarPet: (original) => {
+          const pet = normalizarFicha(original);
           aplicar(
             (db) => ({ db: R.atualizarPet(db, pet), valor: undefined }),
             (c, ps) => remoto.pet(c, ps, pet, false),

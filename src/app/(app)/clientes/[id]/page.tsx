@@ -15,6 +15,7 @@ import { NOME_PORTE, dataCurta, diferencaDias, hoje, moeda, telefone } from "@/d
 import { Botao, BotaoLink, Campo, Chip, Folha, PetAvatar, Secao, StatusChip, TituloVoltar, Vazio } from "@/components/ui";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { NovoPetFolha } from "@/components/pet-form";
+import { selosDoPet, temAlerta } from "@/domain/ficha-pet";
 
 export default function ClienteDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -122,14 +123,14 @@ export default function ClienteDetalhe() {
                       {p.raca} · {NOME_PORTE[p.porte]}
                       {p.ultimaVisita && ` · há ${diferencaDias(p.ultimaVisita, T)} dias`}
                     </p>
-                    {(p.alergias || p.cuidados || plano) && (
+                    {(temAlerta(p) || plano) && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {(p.alergias || p.cuidados) && (
-                          <Chip tom="warn">
-                            <TriangleAlert className="mr-1 h-3 w-3" />
-                            {p.alergias ? `Alergia: ${p.alergias}` : "Cuidado especial"}
+                        {selosDoPet(p).map((selo) => (
+                          <Chip key={selo} tom="warn" className="max-w-full">
+                            <TriangleAlert className="mr-1 h-3 w-3 shrink-0" />
+                            <span className="truncate">{selo}</span>
                           </Chip>
-                        )}
+                        ))}
                         {plano && <Chip tom="info">Plano · {saldoPlano(db, plano.id)} de {plano.totalUsos}</Chip>}
                       </div>
                     )}

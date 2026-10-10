@@ -18,6 +18,8 @@ import { dataLonga, diaCurto, duracao, hoje, moeda, primeiroNome, telefone } fro
 import { linkWhatsapp } from "@/domain/messages";
 import { Chip, cx } from "@/components/ui";
 import { MARCA } from "@/lib/marca";
+import { CampoRaca } from "@/components/campo-raca";
+import { normalizarRaca } from "@/domain/racas";
 
 type Estado = { tipo: "carregando" } | { tipo: "nao-encontrado" } | { tipo: "erro"; msg: string } | { tipo: "ok"; agenda: AgendaPublica; demo: boolean };
 
@@ -118,7 +120,7 @@ function Formulario({ slug, agenda, demo, recarregar }: { slug: string; agenda: 
 
   async function enviar() {
     setErro("");
-    const pedido = { nome, whatsapp: zap, pet, especie, raca, porte: porte ?? "P", servicos, data, hora, observacoes: obs, aceite };
+    const pedido = { nome, whatsapp: zap, pet, especie, raca: normalizarRaca(raca, especie), porte: porte ?? "P", servicos, data, hora, observacoes: obs, aceite };
     try {
       if (!porte) throw new ErroRegra("Escolha o porte do pet.");
       validarPedido(pedido);
@@ -302,10 +304,8 @@ function Formulario({ slug, agenda, demo, recarregar }: { slug: string; agenda: 
           <div className="space-y-3">
             <input className="input" placeholder="Seu nome" value={nome} onChange={(e) => setNome(e.target.value)} autoComplete="name" />
             <input className="input" placeholder="Seu WhatsApp com DDD" inputMode="tel" value={zap} onChange={(e) => setZap(e.target.value)} autoComplete="tel" />
-            <div className="grid grid-cols-2 gap-3">
-              <input className="input" placeholder="Nome do pet" value={pet} onChange={(e) => setPet(e.target.value)} />
-              <input className="input" placeholder="Raça (opcional)" value={raca} onChange={(e) => setRaca(e.target.value)} />
-            </div>
+            <input className="input" placeholder="Nome do pet" value={pet} onChange={(e) => setPet(e.target.value)} />
+            <CampoRaca valor={raca} onChange={setRaca} especie={especie} placeholder="Raça (opcional): digite para buscar" />
             <textarea className="input resize-none" rows={2} placeholder="Algo que devemos saber? (alergia, medo de secador…)" value={obs} onChange={(e) => setObs(e.target.value)} />
             <label className="flex items-start gap-3 rounded-2xl bg-surface px-4 py-3 text-[13.5px]">
               <input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600" />

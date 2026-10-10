@@ -49,6 +49,7 @@ import { useToast } from "@/components/providers";
 import { pode, registraEtapasDoBanho, transicoesDoPapel } from "@/domain/permissoes";
 import { EtapaFolha, LinhaDoTempo } from "@/components/acompanhamento";
 import { TransporteFolha } from "@/components/transporte";
+import { avisoDoPet } from "@/domain/ficha-pet";
 
 const ACOES: Partial<Record<StatusAtendimento, { rotulo: string; Icone: typeof Check; perigo?: boolean }>> = {
   confirmado: { rotulo: "Confirmar horário", Icone: CalendarCheck },
@@ -205,12 +206,12 @@ function AtendimentoDetalhe() {
         )}
       </div>
 
-      {(pet.alergias || pet.cuidados) && (
+      {avisoDoPet(pet) && (
         <div className="px-5 pt-4">
           <Aviso
             icone={<TriangleAlert className="h-6 w-6 fill-warn-500 text-white" />}
-            titulo={pet.alergias ? `Alergia a ${pet.alergias}` : "Cuidado especial"}
-            texto={pet.cuidados}
+            titulo={avisoDoPet(pet)!.titulo}
+            texto={avisoDoPet(pet)!.texto}
           />
         </div>
       )}

@@ -14,6 +14,7 @@ import { EditarPetFolha, idade } from "@/components/pet-form";
 import { CarteiraSaude } from "@/components/vacinas";
 import { CartaoSelos } from "@/components/fidelidade";
 import { cartao } from "@/domain/fidelidade";
+import { SEM_ALERGIA, avisoDoPet, normalizarAlergia } from "@/domain/ficha-pet";
 
 export default function PetDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +47,7 @@ export default function PetDetalhe() {
     ["Peso", pet.pesoKg ? `${String(pet.pesoKg).replace(".", ",")} kg` : undefined],
     ["Pelagem", pet.pelagem],
     ["Temperamento", pet.temperamento],
+    ["Alergia", normalizarAlergia(pet.alergias) === SEM_ALERGIA ? "Não tem" : undefined],
     ["Observações", pet.observacoes],
     ["Última visita", pet.ultimaVisita ? `${dataCurta(pet.ultimaVisita)} (há ${diferencaDias(pet.ultimaVisita, T)} dias)` : undefined],
   ];
@@ -127,9 +129,9 @@ export default function PetDetalhe() {
           ))}
       </div>
 
-      {(pet.alergias || pet.cuidados) && (
+      {avisoDoPet(pet) && (
         <div className="px-5">
-          <Aviso icone={<TriangleAlert className="h-6 w-6 fill-warn-500 text-white" />} titulo={pet.alergias ? `Alergia a ${pet.alergias}` : "Cuidado especial"} texto={pet.cuidados} />
+          <Aviso icone={<TriangleAlert className="h-6 w-6 fill-warn-500 text-white" />} titulo={avisoDoPet(pet)!.titulo} texto={avisoDoPet(pet)!.texto} />
         </div>
       )}
 

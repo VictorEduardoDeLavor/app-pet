@@ -16,6 +16,7 @@ import { Aviso, Botao, CapaFoto, Chip, Folha, NumeroVidro, PetAvatar, Vazio, cx 
 import { FotoBotao } from "@/components/acompanhamento";
 import { WhatsappFolha } from "@/components/whatsapp-folha";
 import { useToast } from "@/components/providers";
+import { avisoDoPet } from "@/domain/ficha-pet";
 
 const ACAO: Partial<Record<Etapa, string>> = {
   saiu_para_buscar: "Saí para buscar",
@@ -259,10 +260,10 @@ function CartaoRota({
           </button>
         </div>
 
-        {(pet.cuidados || pet.alergias) && (
+        {avisoDoPet(pet) && (
           <p className="mt-3 flex items-start gap-2 rounded-xl bg-warn-50 px-3 py-2 text-[13px] font-medium text-warn-700">
             <TriangleAlert className="mt-px h-4 w-4 shrink-0" />
-            {pet.cuidados ?? `Alergia a ${pet.alergias}`}
+            {[avisoDoPet(pet)!.titulo, avisoDoPet(pet)!.texto].filter((x) => x && x !== "Cuidado especial").join(" · ") || "Cuidado especial"}
           </p>
         )}
 

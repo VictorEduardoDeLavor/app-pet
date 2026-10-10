@@ -10,6 +10,8 @@ import { NOME_PORTE, dataLonga, duracao, hoje, horaAtual, moeda, normalizarWhats
 import { Aviso, Botao, Campo, PetAvatar, TituloVoltar, cx } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { CamposTransporte, type ValorTransporte } from "@/components/transporte";
+import { avisoDoPet } from "@/domain/ficha-pet";
+import { CampoRaca } from "@/components/campo-raca";
 
 export default function NovoAgendamentoPagina() {
   return (
@@ -232,7 +234,6 @@ function NovoAgendamento() {
             {novoPet && (
               <div className="space-y-3 rounded-2xl border border-line p-4">
                 <input className="input" placeholder="Nome do pet" value={pNome} onChange={(e) => setPNome(e.target.value)} />
-                <input className="input" placeholder="Raça (ou SRD)" value={pRaca} onChange={(e) => setPRaca(e.target.value)} />
                 <div className="grid grid-cols-2 gap-2">
                   {(["cao", "gato"] as Especie[]).map((e) => (
                     <button key={e} onClick={() => setPEspecie(e)} className={cx("tap rounded-xl border py-2.5 text-[14px] font-medium", pEspecie === e ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}>
@@ -240,6 +241,7 @@ function NovoAgendamento() {
                     </button>
                   ))}
                 </div>
+                <CampoRaca valor={pRaca} onChange={setPRaca} especie={pEspecie} placeholder="Raça: digite para buscar (ou SRD)" />
                 <div className="grid grid-cols-4 gap-2">
                   {(["P", "M", "G", "GG"] as Porte[]).map((pt) => (
                     <button key={pt} onClick={() => setPPorte(pt)} className={cx("tap rounded-xl border py-2.5 text-[14px] font-medium", pPorte === pt ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted")}>
@@ -267,8 +269,8 @@ function NovoAgendamento() {
                 </div>
               </div>
             )}
-            {pet && (pet.alergias || pet.cuidados) && (
-              <Aviso className="mt-3" icone={<TriangleAlert className="h-5 w-5" />} titulo={pet.alergias ? `Alergia a ${pet.alergias}` : "Cuidado especial"} texto={pet.cuidados} />
+            {pet && avisoDoPet(pet) && (
+              <Aviso className="mt-3" icone={<TriangleAlert className="h-5 w-5" />} titulo={avisoDoPet(pet)!.titulo} texto={avisoDoPet(pet)!.texto} />
             )}
           </Bloco>
         )}

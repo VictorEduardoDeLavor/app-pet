@@ -7,6 +7,7 @@ import { useDb } from "@/data/store";
 import { clientesSumidos, petsDoTutor, planoAtivoDoPet } from "@/domain/rules";
 import { hoje, telefone } from "@/domain/format";
 import { Chip, Filtros, PetAvatar, Titulo, Vazio } from "@/components/ui";
+import { temAlerta } from "@/domain/ficha-pet";
 
 type Filtro = "todos" | "plano" | "alerta" | "sumidos";
 
@@ -25,7 +26,7 @@ export default function Clientes() {
         const pets = petsDoTutor(db, t.id);
         if (q && !(t.nome.toLowerCase().includes(q) || (dig.length >= 3 && t.whatsapp.includes(dig)) || pets.some((p) => p.nome.toLowerCase().includes(q)))) return false;
         if (filtro === "plano") return pets.some((p) => planoAtivoDoPet(db, p.id, T));
-        if (filtro === "alerta") return pets.some((p) => p.alergias || p.cuidados);
+        if (filtro === "alerta") return pets.some(temAlerta);
         if (filtro === "sumidos") return sumidos.has(t.id);
         return true;
       })
@@ -85,7 +86,7 @@ export default function Clientes() {
         <ul className="mt-4 space-y-2.5 px-5">
           {lista.map((t) => {
             const pets = petsDoTutor(db, t.id);
-            const alerta = pets.some((p) => p.alergias || p.cuidados);
+            const alerta = pets.some(temAlerta);
             const comPlano = pets.some((p) => planoAtivoDoPet(db, p.id, T));
             return (
               <li key={t.id}>

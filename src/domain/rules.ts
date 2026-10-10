@@ -24,6 +24,7 @@ import type {
   Tutor,
 } from "./types";
 import { dataDoIso, diferencaDias, diaDaSemana, horaDeMinutos, minutos, somaDias } from "./format";
+import { normalizarFicha } from "./ficha-pet";
 
 export class ErroRegra extends Error {
   constructor(mensagem: string) {
@@ -550,7 +551,7 @@ export function criarTutor(
 export function criarPet(db: Db, input: Omit<Pet, "id">): { db: Db; pet: Pet } {
   if (!porId(db.tutores, input.tutorId)) throw new ErroRegra("Escolha o tutor.");
   if (input.nome.trim().length < 1) throw new ErroRegra("Informe o nome do pet.");
-  const pet: Pet = { ...input, nome: input.nome.trim(), id: uid() };
+  const pet: Pet = { ...normalizarFicha(input), nome: input.nome.trim(), id: uid() };
   return { db: { ...db, pets: [...db.pets, pet] }, pet };
 }
 

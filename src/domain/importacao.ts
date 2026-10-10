@@ -4,6 +4,8 @@
 
 import type { Db, Especie, Pet, Porte, Tutor } from "./types";
 import { uid } from "./rules";
+import { SEM_RACA, normalizarRaca } from "./racas";
+import { normalizarAlergia } from "./ficha-pet";
 
 export type CampoImport = "tutor" | "whatsapp" | "email" | "endereco" | "pet" | "especie" | "raca" | "porte" | "sexo" | "alergias" | "observacoes";
 
@@ -81,9 +83,12 @@ const titulo = (s: string) =>
     .replace(/\s(Da|De|Do|Das|Dos|E)\s/g, (m) => m.toLowerCase());
 
 /** "shih tzu" vira "Shih Tzu"; siglas como SRD continuam em maiúsculas; vazio vira SRD. */
-function racaLimpa(v: string): string {
-  if (!v) return "SRD";
-  if (/^[A-Z]{2,4}$/.test(v.trim()) || /^srd$/i.test(v.trim())) return v.trim().toUpperCase();
+/** Raça da lista quando reconhecida ("shitzu" → "Shih-tzu", "SRD" → "Sem raça definida"); senão, como veio. */
+function racaLimpa(v: string, especie: Especie): string {
+  if (!v.trim()) return SEM_RACA;
+  const daLista = normalizarRaca(v, especie);
+  if (daLista !== v.trim().replace(/\s+/g, " ")) return daLista;
+  if (/^[A-Z]{2,4}$/.test(v.trim())) return v.trim().toUpperCase();
   return titulo(v);
 }
 
@@ -174,14 +179,15 @@ export function montarPrevia(db: Db, linhas: unknown[][], mapa = mapearColunas(l
     }
     const porte = normalizarPorte(celula(l, mapa.porte));
     const sexo = semAcento(celula(l, mapa.sexo));
+    const especie = normalizarEspecie(celula(l, mapa.especie));
     t.pets.push({
       nome: titulo(nomePet),
-      especie: normalizarEspecie(celula(l, mapa.especie)),
-      raca: racaLimpa(celula(l, mapa.raca)),
+      especie,
+      raca: racaLimpa(celula(l, mapa.raca), especie),
       porte: porte ?? "M",
       porteInformado: !!porte,
       sexo: sexo.startsWith("f") ? "F" : sexo.startsWith("m") ? "M" : undefined,
-      alergias: celula(l, mapa.alergias) || undefined,
+      alergias: normalizarAlergia(celula(l, mapa.alergias)),
       observacoes: celula(l, mapa.observacoes) || undefined,
     });
   });

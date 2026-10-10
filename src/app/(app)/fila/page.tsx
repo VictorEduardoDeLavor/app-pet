@@ -10,6 +10,7 @@ import { NOME_PORTE, dataLonga, diaCurto, duracao, hoje, horaDeMinutos, horaDoIs
 import { Botao, CapaFoto, Chip, Filtros, Folha, NumeroVidro, PetAvatar, Progresso, StatusChip, Vazio, cx } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { EtapaFolha, FotoBotao } from "@/components/acompanhamento";
+import { ehBravo, temAlergia, tituloAlergia } from "@/domain/ficha-pet";
 
 /** Relógio que anda sozinho, para o "há 25 min" não congelar. */
 function useAgora(intervaloMs = 30_000) {
@@ -244,9 +245,10 @@ function CartaoFila({ a, destaque = false, acao }: { a: Atendimento; destaque?: 
           </div>
         )}
 
-        {(pet.alergias || pet.cuidados || pet.observacoes || a.observacoes) && (
+        {(temAlergia(pet) || ehBravo(pet) || pet.cuidados || pet.observacoes || a.observacoes) && (
           <ul className="mt-3 space-y-2">
-            {pet.alergias && <Alerta tom="bad" icone={<TriangleAlert />} texto={`Alergia a ${pet.alergias}`} />}
+            {temAlergia(pet) && <Alerta tom="bad" icone={<TriangleAlert />} texto={tituloAlergia(pet)!} />}
+            {ehBravo(pet) && <Alerta tom="bad" icone={<TriangleAlert />} texto="Bravo: cuidado ao manusear" />}
             {pet.cuidados && <Alerta tom="warn" icone={<TriangleAlert />} texto={pet.cuidados} />}
             {pet.observacoes && <Alerta tom="neutro" icone={<ClipboardList />} texto={pet.observacoes} />}
             {a.observacoes && <Alerta tom="neutro" icone={<MessageSquareText />} texto={`Recado: ${a.observacoes}`} />}

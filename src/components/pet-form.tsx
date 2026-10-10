@@ -5,8 +5,100 @@ import { useApp } from "@/data/store";
 import type { Especie, Pet, Porte } from "@/domain/types";
 import { Trash2 } from "lucide-react";
 import { bloqueioExcluirPet } from "@/domain/edicao";
+import { ALERGIA_SEM_DETALHE, PELAGENS, SEM_ALERGIA, TEMPERAMENTOS, normalizarAlergia } from "@/domain/ficha-pet";
+import { semAcento } from "@/domain/racas";
 import { Botao, Campo, Folha, cx } from "./ui";
+import { CampoRaca } from "./campo-raca";
 import { useToast } from "./providers";
+
+const chip = (ativo: boolean) =>
+  cx("tap rounded-xl border px-3.5 py-2.5 text-[14px] font-medium", ativo ? "border-brand-600 bg-brand-50 text-brand-700" : "border-line text-muted");
+
+/** Opções de um toque e, se nenhuma servir, "Outra" abre o campo de texto. Tocar de novo desmarca. */
+export function EscolhaComOutra({
+  opcoes,
+  valor,
+  onChange,
+  rotuloOutra = "Outra",
+  placeholder,
+}: {
+  opcoes: readonly string[];
+  valor?: string;
+  onChange: (v: string | undefined) => void;
+  rotuloOutra?: string;
+  placeholder?: string;
+}) {
+  const casada = opcoes.find((o) => semAcento(o) === semAcento(valor ?? ""));
+  const [outraAberta, setOutraAberta] = useState(false);
+  const modoOutra = outraAberta || (!!valor?.trim() && !casada);
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {opcoes.map((o) => (
+          <button
+            key={o}
+            type="button"
+            aria-pressed={casada === o}
+            className={chip(casada === o)}
+            onClick={() => {
+              setOutraAberta(false);
+              onChange(casada === o ? undefined : o);
+            }}
+          >
+            {o}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-pressed={modoOutra}
+          className={chip(modoOutra)}
+          onClick={() => {
+            if (modoOutra) {
+              setOutraAberta(false);
+              if (!casada) onChange(undefined);
+            } else {
+              setOutraAberta(true);
+              onChange(undefined);
+            }
+          }}
+        >
+          {rotuloOutra}
+        </button>
+      </div>
+      {modoOutra && (
+        <input className="input mt-2" autoFocus={outraAberta} value={casada ? "" : (valor ?? "")} onChange={(e) => onChange(e.target.value || undefined)} placeholder={placeholder} />
+      )}
+    </div>
+  );
+}
+
+/** Alergia: Não / Sim, e se sim, a quê. */
+export function EscolhaAlergia({ valor, onChange }: { valor?: string; onChange: (v: string | undefined) => void }) {
+  const a = normalizarAlergia(valor);
+  const nao = a === SEM_ALERGIA;
+  const sim = !!a && !nao;
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" aria-pressed={nao} className={chip(nao)} onClick={() => onChange(nao ? undefined : SEM_ALERGIA)}>
+          Não tem
+        </button>
+        <button type="button" aria-pressed={sim} className={chip(sim)} onClick={() => onChange(sim ? undefined : ALERGIA_SEM_DETALHE)}>
+          Sim, tem alergia
+        </button>
+      </div>
+      {sim && (
+        <input
+          className="input mt-2"
+          autoFocus={a === ALERGIA_SEM_DETALHE}
+          value={a === ALERGIA_SEM_DETALHE ? "" : (valor ?? "")}
+          onChange={(e) => onChange(e.target.value.trim() ? e.target.value : ALERGIA_SEM_DETALHE)}
+          placeholder="A quê? Ex.: perfume, shampoo com corante"
+        />
+      )}
+    </div>
+  );
+}
 
 type Rascunho = Omit<Pet, "id" | "tutorId">;
 
@@ -37,9 +129,10 @@ export function CamposPet({ valor, onChange }: { valor: Rascunho; onChange: (v: 
         <span className="label">Espécie</span>
         <Opcoes itens={[{ v: "cao" as Especie, r: "Cão" }, { v: "gato" as Especie, r: "Gato" }]} atual={valor.especie} on={(v) => set("especie", v)} />
       </div>
-      <Campo rotulo="Raça">
-        <input className="input" value={valor.raca} onChange={(e) => set("raca", e.target.value)} placeholder="Ex.: Golden Retriever ou SRD" />
-      </Campo>
+      <div>
+        <span className="label">Raça</span>
+        <CampoRaca valor={valor.raca} onChange={(v) => set("raca", v)} especie={valor.especie} />
+      </div>
       <div>
         <span className="label">Porte (define preço e duração)</span>
         <Opcoes itens={(["P", "M", "G", "GG"] as Porte[]).map((p) => ({ v: p, r: p }))} atual={valor.porte} on={(v) => set("porte", v)} />
@@ -56,15 +149,19 @@ export function CamposPet({ valor, onChange }: { valor: Rascunho; onChange: (v: 
       <Campo rotulo="Nascimento (opcional)" dica={valor.nascimento ? idade(valor.nascimento) : "Para saber a idade e lembrar do aniversário."}>
         <input className="input" type="date" max={new Date().toISOString().slice(0, 10)} value={valor.nascimento ?? ""} onChange={(e) => set("nascimento", e.target.value || undefined)} />
       </Campo>
-      <Campo rotulo="Pelagem">
-        <input className="input" value={valor.pelagem ?? ""} onChange={(e) => set("pelagem", e.target.value || undefined)} placeholder="Ex.: longa, dupla" />
-      </Campo>
-      <Campo rotulo="Temperamento">
-        <input className="input" value={valor.temperamento ?? ""} onChange={(e) => set("temperamento", e.target.value || undefined)} placeholder="Ex.: manso, medroso, agitado" />
-      </Campo>
-      <Campo rotulo="Alergias" dica="Aparece em destaque na agenda e na tela do banhista.">
-        <input className="input" value={valor.alergias ?? ""} onChange={(e) => set("alergias", e.target.value || undefined)} placeholder="Ex.: perfume" />
-      </Campo>
+      <div>
+        <span className="label">Pelagem</span>
+        <EscolhaComOutra opcoes={PELAGENS} valor={valor.pelagem} onChange={(v) => set("pelagem", v)} placeholder="Ex.: dupla, encaracolada" />
+      </div>
+      <div>
+        <span className="label">Temperamento</span>
+        <EscolhaComOutra opcoes={TEMPERAMENTOS} valor={valor.temperamento} onChange={(v) => set("temperamento", v)} rotuloOutra="Outro" placeholder="Ex.: brincalhão, arisco" />
+      </div>
+      <div>
+        <span className="label">Possui alergia?</span>
+        <EscolhaAlergia valor={valor.alergias} onChange={(v) => set("alergias", v)} />
+        <span className="mt-1.5 block text-[12.5px] text-muted">Alergia e pet bravo aparecem em destaque na agenda e na tela do banhista.</span>
+      </div>
       <Campo rotulo="Cuidados especiais">
         <input className="input" value={valor.cuidados ?? ""} onChange={(e) => set("cuidados", e.target.value || undefined)} placeholder="Ex.: evitar fragrâncias" />
       </Campo>
